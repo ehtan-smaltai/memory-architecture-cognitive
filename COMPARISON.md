@@ -212,6 +212,46 @@ Each individual component exists in prior work. The combination is novel.
 | **Codebook rigidity** | Fixed ~96 codes may not cover all domains | Codebook is extensible; add domain-specific codes |
 | **No production hardening** | JSON files, no concurrent access, no auth | This is a proof of concept, not production software |
 
+---
+
+## Benchmarks in the Field
+
+### LoCoMo Benchmark
+- 300-turn conversations spanning up to 35 sessions (~9K tokens avg)
+- Tests: QA, event summarization, multi-modal dialogue
+- Temporal grounding: up to 25 events over 6-12 months
+- Best performer: **SYNAPSE** with significant advantages on multi-hop reasoning
+- Mem0 score: 67.13% (LLM-as-a-Judge)
+
+### LongMemEval Benchmark
+- 500 manually-created questions testing 5 core abilities
+- Short variant: ~115K tokens, ~200 dialogue turns
+- Medium variant: ~1.5M tokens, ~2000 turns, 500 sessions
+- Tests: information extraction, multi-session reasoning, temporal reasoning, knowledge updates
+
+### MemoryAgentBench
+- Tests 4 competencies: accurate retrieval, test-time learning, long-range understanding, conflict resolution
+- Key finding: **multi-hop conflict resolution shows dramatic failures across all systems (max 6% accuracy)**
+
+### Published Performance Numbers
+
+| System | Token Savings | Latency Improvement | Multi-hop QA |
+|--------|-------------|--------------------|--------------|
+| Mem0 | 90% (1,764 vs 26,031 tokens) | 91% p95 reduction (0.200s) | Supported |
+| HippoRAG | 10-30x cheaper than iterative RAG | 6-13x faster | 20% improvement |
+| SYNAPSE | Graph-optimized | Good | Best on LoCoMo |
+| Zep | Graph-optimized | 90% reduction | Temporal reasoning |
+| LazyGraphRAG | 0.1% cost of full GraphRAG | Good | Global queries |
+
+### Where We Would Need to Prove Ourselves
+- Run against LoCoMo (multi-hop QA, temporal reasoning)
+- Run against LongMemEval (1.5M token conversations)
+- Compare codebook compression ratio vs Mem0's fact extraction
+- Benchmark spreading activation vs HippoRAG's Personalized PageRank
+- Measure p95 latency for graph traversal + reasoning
+
+---
+
 ## Cost Analysis (Per Query)
 
 Assuming Claude Sonnet pricing (~$3/M input, ~$15/M output):
@@ -220,22 +260,66 @@ Assuming Claude Sonnet pricing (~$3/M input, ~$15/M output):
 |--------|-------------|--------------|-------------------|
 | RAG (top-10 chunks) | ~5,000 | ~500 | ~$0.022 |
 | MemGPT (3 function calls) | ~3,000 x 3 | ~200 x 3 | ~$0.036 |
+| Mem0 | ~1,764 | ~300 | ~$0.010 |
 | This Architecture | ~600 (encode) + ~600 (reason) | ~50 + ~300 | ~$0.009 |
 
 At scale (1,000 queries/day):
 - RAG: ~$22/day
 - MemGPT: ~$36/day
+- Mem0: ~$10/day
 - This: ~$9/day
 
+Infrastructure costs:
+- RAG: $25-300/month (vector DB hosting — Pinecone, Weaviate, Qdrant)
+- GraphRAG: Neo4j instance + compute for Leiden clustering
+- Mem0: Open-source or enterprise pricing
+- Zep: Platform service pricing
+- This Architecture: **$0 infrastructure** (JSON files, no external DB)
+
 The cost advantage grows as memory count increases because our context tokens stay fixed while RAG's grow with chunk retrieval.
+
+---
+
+## Industry Adoption (as of 2026)
+
+| System | Adoption | GitHub Stars | Notable Users |
+|--------|----------|-------------|---------------|
+| RAG | Ubiquitous | N/A (pattern, not library) | Everyone |
+| LangChain | Very High | 100K+ | Enterprise standard |
+| LlamaIndex | High | 37K+ | Enterprise standard |
+| Mem0 | Growing | 37K+ | Netflix, Lemonade, Rocket Money |
+| GraphRAG | Moderate | 20K+ | Microsoft ecosystem |
+| MemGPT/Letta | Moderate | 12K+ | Research + startups |
+| Zep | Growing | 3K+ | Agentic platforms |
+| SYNAPSE | Research | N/A | Academic |
+| HippoRAG | Research | N/A | Academic |
+| **This Architecture** | **New** | **New** | **Proof of concept** |
+
+---
+
+## Emerging Trends (2025-2026)
+
+Key trends that validate our architectural choices:
+
+1. **Graph-based memory outperforming vectors** — SYNAPSE, HippoRAG, Zep, Mem0 all moving toward graph structures. Vector-only retrieval is being surpassed.
+
+2. **Temporal awareness becoming standard** — Zep's bi-temporal KG, SYNAPSE's temporal decay. Static embeddings can't capture when things happened.
+
+3. **Multi-hop still unsolved** — MemoryAgentBench shows max 6% accuracy on multi-hop conflict resolution. This remains the hardest open problem.
+
+4. **Compression is the next frontier** — Mem0's 90% token savings, Focus framework's 22.7% net savings, sparsification achieving 8x smaller memory. Everyone is trying to compress.
+
+5. **Always-On Memory** — Google exploring ditching vector databases entirely for LLM-driven persistent memory. Validates the brain-like approach.
+
+---
 
 ## Positioning
 
 ```
-                    Simple ◄────────────────────► Complex
+                    Simple <------------------------> Complex
 
-  Buffer Memory ──── RAG ──── MemGPT ──── GraphRAG ──── This Architecture
-       │              │          │            │                │
+  Buffer Memory ---- RAG ---- MemGPT ---- GraphRAG ---- This Architecture
+       |              |          |            |                |
     No persistence  Static    Managed      Static          Living graph
     No compression  chunks    tiered       community       Compressed DNA
     No graph        vectors   function     hierarchical    Spreading activation
@@ -244,6 +328,8 @@ The cost advantage grows as memory count increases because our context tokens st
 ```
 
 **We sit at the complex end** — more moving parts, but genuinely novel capabilities that simpler systems can't match. The question is whether your use case needs those capabilities.
+
+---
 
 ## When to Use What
 
@@ -255,4 +341,20 @@ The cost advantage grows as memory count increases because our context tokens st
 | Large corpus analysis and summarization | **GraphRAG** |
 | Academic research on memory retrieval | **SYNAPSE** |
 | Managed memory service with API | **Mem0** |
+| Temporal-aware agentic memory | **Zep** |
 | Long-running agent with relational memories, multi-hop reasoning, fixed cost, and learning | **This Architecture** |
+
+---
+
+## References
+
+- [SYNAPSE: Spreading Activation for LLM Memory](https://arxiv.org/abs/2601.02744) (January 2026)
+- [HippoRAG: Neurobiologically Inspired LTM for LLMs](https://arxiv.org/abs/2405.14831)
+- [GraphRAG Documentation](https://microsoft.github.io/graphrag/)
+- [Mem0: Scalable Long-Term Memory for AI Agents](https://arxiv.org/abs/2504.19413)
+- [Zep: Temporal KG Architecture for Agent Memory](https://arxiv.org/abs/2501.13956)
+- [Generative Agents: Interactive Simulacra](https://arxiv.org/abs/2304.03442)
+- [LoCoMo: Evaluating Long-Term Conversational Memory](https://snap-research.github.io/locomo/)
+- [Agentic Memory: Unified LTM/STM Management](https://arxiv.org/abs/2601.01885)
+- [Recursive Language Models](https://arxiv.org/html/2512.24601v1)
+- [MAGMA: Multi-Graph Agent Memory](https://arxiv.org/abs/2601.03236) (January 2026)
