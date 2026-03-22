@@ -1,87 +1,104 @@
 """
-DNA Encoder — Layer 1 of the Cognitive Memory Architecture
+DNA Encoder — Layer 1 of the Cognitive Memory Architecture (v2)
 
-Compresses raw interactions into minimal encoded memory units ("strands").
-Each strand encodes entities, relations, sentiment, confidence, domain —
-analogous to how DNA encodes biological information in a minimal alphabet.
+Compresses raw interactions into CodebookStrand units using a finite
+alphabet of semantic primitives. The Claude API is constrained to select
+from the codebook — no free-form text extraction.
 
-Key property: raw text is NEVER stored. Only the compressed strand + a hash
-of the original for dedup.
+Key change from v1: strands are fixed-width integer sequences, not
+variable-length JSON. Real compression, not just structured extraction.
 """
 
+from __future__ import annotations
+
 import json
-import uuid
 import hashlib
 import os
+import time
 from typing import Optional
 
 import anthropic
 
+from codebook import (
+    Codebook,
+    CodebookStrand,
+    make_codebook_strand,
+    EntityType,
+    RelationType,
+    Modifier,
+    TemporalMarker,
+    Domain,
+)
+from entities import EntityRegistry
 
-# ─── Strand schema ───────────────────────────────────────────────────────────
 
-def make_strand(
-    entities: list[str],
-    relation: str,
-    value: str,
-    sentiment: float,
-    confidence: float,
-    timestamp: int,
-    domain: str,
-    raw_hash: str,
-) -> dict:
-    """Create a new memory strand with a unique ID."""
-    return {
-        "strand_id": str(uuid.uuid4()),
-        "encoded": {
-            "entities": entities,
-            "relation": relation,
-            "value": value,
-            "sentiment": round(sentiment, 2),
-            "confidence": round(confidence, 2),
-            "timestamp": timestamp,
-            "domain": domain,
-        },
-        "raw_hash": raw_hash,
-        "edges": [],
-    }
+# ─── Extraction prompt (constrained to codebook codes) ───────────────────────
+
+def build_extraction_prompt(codebook: Codebook) -> str:
+    """Build the system prompt that forces Claude to use codebook codes."""
+    entity_types = ", ".join(codebook.entity_type_list())
+    relations = ", ".join(codebook.relation_list())
+    modifiers = ", ".join(codebook.modifier_list())
+    temporals = ", ".join(codebook.temporal_list())
+    domains = ", ".join(codebook.domain_list())
+
+    return f"""You are a memory encoder. Given raw text, classify it using ONLY these codebook codes.
+
+ENTITY_TYPES: {entity_types}
+RELATIONS: {relations}
+MODIFIERS: {modifiers}
+TEMPORAL: {temporals}
+DOMAINS: {domains}
+
+Return ONLY valid JSON with these exact keys:
+{{
+  "entities": [{{"type": "ENTITY_TYPE_CODE", "name": "entity_name"}}, ...],
+  "relation": "RELATION_CODE",
+  "modifier": "MODIFIER_CODE",
+  "temporal": "TEMPORAL_CODE",
+  "domain": "DOMAIN_CODE",
+  "sentiment": 0,
+  "confidence": 4
+}}
+
+Rules:
+- entities: 1-4 entities. "type" MUST be one of the ENTITY_TYPES codes above. "name" is the entity's actual name (e.g., "Sarah", "Acme Corp").
+- relation: MUST be one of the RELATIONS codes above. Pick the closest match.
+- modifier: MUST be one of the MODIFIERS codes above.
+- temporal: MUST be one of the TEMPORAL codes above.
+- domain: MUST be one of the DOMAINS codes above.
+- sentiment: integer from -2 (very negative) to 2 (very positive). 0 = neutral.
+- confidence: integer from 1 (very uncertain) to 5 (very certain).
+
+Return ONLY the JSON object, no markdown fences, no explanation."""
 
 
 # ─── Encoder ─────────────────────────────────────────────────────────────────
 
-EXTRACTION_SYSTEM = """You are a memory encoder. Given raw text, extract structured fields.
-Return ONLY valid JSON with these exact keys:
-{
-  "entities": ["list", "of", "named_entities"],
-  "relation": "verb_phrase_describing_action",
-  "value": "object_or_outcome",
-  "sentiment": 0.0,
-  "confidence": 0.85,
-  "domain": "category"
-}
-
-Rules:
-- entities: proper nouns, people, companies, products (2-5 items)
-- relation: a concise verb phrase (e.g., "expressed_concern_about", "requested", "signed_up_for")
-- value: the object/outcome of the relation (1-3 words)
-- sentiment: float -1.0 (very negative) to 1.0 (very positive), 0.0 = neutral
-- confidence: how certain you are about the extraction, 0.0 to 1.0
-- domain: one of: sales, technical, operations, hr, finance, general
-
-Return ONLY the JSON object, no markdown, no explanation."""
-
-
 class DNAEncoder:
-    """Encodes raw text into compressed memory strands using Claude API."""
+    """Encodes raw text into CodebookStrand units via constrained Claude API."""
 
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
+    def __init__(
+        self,
+        codebook: Codebook,
+        entity_registry: EntityRegistry,
+        model: str = "claude-sonnet-4-20250514",
+    ):
         self.client = anthropic.Anthropic()
         self.model = model
+        self.codebook = codebook
+        self.entity_registry = entity_registry
+        self._system_prompt = build_extraction_prompt(codebook)
 
-    def encode(self, raw_text: str, timestamp: Optional[int] = None) -> dict:
-        """Encode a raw text interaction into a memory strand."""
-        import time
+    def encode(self, raw_text: str, timestamp: Optional[int] = None) -> CodebookStrand:
+        """
+        Encode raw text into a CodebookStrand.
 
+        1. Call Claude API with codebook-constrained prompt
+        2. Map response to codebook integer codes
+        3. Resolve entity names through EntityRegistry
+        4. Return fixed-width CodebookStrand
+        """
         if timestamp is None:
             timestamp = int(time.time())
 
@@ -90,7 +107,7 @@ class DNAEncoder:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=256,
-            system=EXTRACTION_SYSTEM,
+            system=self._system_prompt,
             messages=[{"role": "user", "content": raw_text}],
         )
 
@@ -98,63 +115,102 @@ class DNAEncoder:
         # Strip markdown fences if present
         if text.startswith("```"):
             text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
+            text = text.rsplit("```", 1)[0].strip()
         extracted = json.loads(text)
 
-        return make_strand(
-            entities=extracted["entities"],
-            relation=extracted["relation"],
-            value=extracted["value"],
-            sentiment=float(extracted["sentiment"]),
-            confidence=float(extracted["confidence"]),
+        # Create a temporary strand_id for entity resolution
+        temp_strand = make_codebook_strand(
+            entity_slots=[],
+            relation=0,
+            modifier=0,
+            temporal=0,
+            domain=0,
+            sentiment=0,
+            confidence=3,
             timestamp=timestamp,
-            domain=extracted["domain"],
             raw_hash=raw_hash,
         )
+        strand_id = temp_strand.strand_id
+
+        # Map entities through codebook + registry
+        entity_slots = []
+        for ent in extracted.get("entities", [])[:4]:  # max 4 entities
+            etype_code = self.codebook.encode_entity_type(ent.get("type", "UNKNOWN"))
+            instance_id = self.entity_registry.resolve(
+                raw_name=ent.get("name", "unknown"),
+                entity_type=etype_code,
+                strand_id=strand_id,
+                timestamp=timestamp,
+            )
+            entity_slots.append((etype_code, instance_id))
+
+        # Map other fields through codebook
+        relation = self.codebook.encode_relation(extracted.get("relation", "OTHER"))
+        modifier = self.codebook.encode_modifier(extracted.get("modifier", "NEUTRAL"))
+        temporal = self.codebook.encode_temporal(extracted.get("temporal", "PRESENT"))
+        domain = self.codebook.encode_domain(extracted.get("domain", "GENERAL"))
+        sentiment = max(-2, min(2, int(extracted.get("sentiment", 0))))
+        confidence = max(1, min(5, int(extracted.get("confidence", 3))))
+
+        # Build the final strand (reusing the same strand_id)
+        strand = CodebookStrand(
+            strand_id=strand_id,
+            entity_slots=entity_slots,
+            relation=relation,
+            modifier=modifier,
+            temporal=temporal,
+            domain=domain,
+            sentiment=sentiment,
+            confidence=confidence,
+            timestamp=timestamp,
+            raw_hash=raw_hash,
+        )
+
+        return strand
 
 
 # ─── Genome persistence ─────────────────────────────────────────────────────
 
 class Genome:
-    """Persistent store for memory strands (genome.json)."""
+    """Persistent store for CodebookStrand units (genome.json)."""
 
     def __init__(self, path: str = "genome.json"):
         self.path = path
-        self._strands: dict[str, dict] = {}
+        self._strands: dict[str, CodebookStrand] = {}
         self._load()
 
     def _load(self):
         if os.path.exists(self.path):
             with open(self.path, "r") as f:
                 data = json.load(f)
-            self._strands = {s["strand_id"]: s for s in data}
+            for d in data:
+                strand = CodebookStrand.from_dict(d)
+                self._strands[strand.strand_id] = strand
 
     def save(self):
+        data = [s.to_dict() for s in self._strands.values()]
         with open(self.path, "w") as f:
-            json.dump(list(self._strands.values()), f, indent=2)
+            json.dump(data, f, indent=2)
 
-    def add(self, strand: dict) -> str:
+    def add(self, strand: CodebookStrand) -> str:
         """Add a strand to the genome. Returns strand_id."""
-        sid = strand["strand_id"]
-        self._strands[sid] = strand
+        self._strands[strand.strand_id] = strand
         self.save()
-        return sid
+        return strand.strand_id
 
-    def get(self, strand_id: str) -> Optional[dict]:
-        """Retrieve a single strand by ID — does NOT load the full genome."""
+    def get(self, strand_id: str) -> Optional[CodebookStrand]:
+        """Retrieve a single strand by ID."""
         return self._strands.get(strand_id)
 
     def has_hash(self, raw_hash: str) -> bool:
-        """Check if a strand with this raw_hash already exists (dedup)."""
-        return any(s["raw_hash"] == raw_hash for s in self._strands.values())
+        """Check for duplicate by raw text hash."""
+        return any(s.raw_hash == raw_hash for s in self._strands.values())
 
     def all_ids(self) -> list[str]:
-        """Return all strand IDs without loading full strand data."""
         return list(self._strands.keys())
 
     def count(self) -> int:
         return len(self._strands)
 
-    def all_strands(self) -> list[dict]:
-        """Return all strands. Use sparingly — prefer get() by ID."""
+    def all_strands(self) -> list[CodebookStrand]:
         return list(self._strands.values())
