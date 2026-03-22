@@ -61,7 +61,8 @@ Return ONLY valid JSON with these exact keys:
   "temporal": "TEMPORAL_CODE",
   "domain": "DOMAIN_CODE",
   "sentiment": 0,
-  "confidence": 4
+  "confidence": 4,
+  "trace": "10-15 word compressed summary preserving key facts"
 }}
 
 Rules:
@@ -72,6 +73,7 @@ Rules:
 - domain: MUST be one of the DOMAINS codes above.
 - sentiment: integer from -2 (very negative) to 2 (very positive). 0 = neutral.
 - confidence: integer from 1 (very uncertain) to 5 (very certain).
+- trace: a 10-15 word compressed micro-summary that preserves specific facts (numbers, durations, dates, names) that the codebook codes cannot capture. This is the neocortical memory trace.
 
 Return ONLY the JSON object, no markdown fences, no explanation."""
 
@@ -155,6 +157,9 @@ class DNAEncoder:
         sentiment = max(-2, min(2, int(extracted.get("sentiment", 0))))
         confidence = max(1, min(5, int(extracted.get("confidence", 3))))
 
+        # Extract neocortical trace (micro-summary preserving key facts)
+        trace = extracted.get("trace", "")
+
         # Build the final strand (reusing the same strand_id)
         strand = CodebookStrand(
             strand_id=strand_id,
@@ -167,6 +172,7 @@ class DNAEncoder:
             confidence=confidence,
             timestamp=timestamp,
             raw_hash=raw_hash,
+            trace=trace,
         )
 
         return strand
@@ -217,3 +223,30 @@ class Genome:
 
     def all_strands(self) -> list[CodebookStrand]:
         return list(self._strands.values())
+
+    def active_strands(self) -> list[CodebookStrand]:
+        """Return only non-superseded strands."""
+        return [s for s in self._strands.values() if s.superseded_by is None]
+
+    def active_ids(self) -> list[str]:
+        """Return IDs of non-superseded strands."""
+        return [s.strand_id for s in self._strands.values() if s.superseded_by is None]
+
+    def remove(self, strand_id: str):
+        """Remove a strand from the genome (forgetting)."""
+        if strand_id in self._strands:
+            del self._strands[strand_id]
+            self.save()
+
+    def increment_activation(self, strand_id: str):
+        """Track that this strand was activated during a query."""
+        strand = self._strands.get(strand_id)
+        if strand:
+            strand.activation_count += 1
+
+    def supersede(self, old_id: str, new_id: str):
+        """Mark a strand as superseded by another."""
+        old = self._strands.get(old_id)
+        if old:
+            old.superseded_by = new_id
+            self.save()

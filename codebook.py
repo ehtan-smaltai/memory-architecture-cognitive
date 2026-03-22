@@ -149,6 +149,9 @@ class CodebookStrand:
     confidence: int                       # quantized: 1-5
     timestamp: int
     raw_hash: str
+    trace: str = ""                       # neocortical trace — 10-15 word micro-summary
+    activation_count: int = 0             # how many times this strand has been activated
+    superseded_by: str | None = None      # strand_id that supersedes this one
 
     def to_sequence(self) -> list[int]:
         """
@@ -192,6 +195,9 @@ class CodebookStrand:
             "confidence": self.confidence,
             "timestamp": self.timestamp,
             "raw_hash": self.raw_hash,
+            "trace": self.trace,
+            "activation_count": self.activation_count,
+            "superseded_by": self.superseded_by,
         }
 
     @classmethod
@@ -208,6 +214,9 @@ class CodebookStrand:
             confidence=d["confidence"],
             timestamp=d["timestamp"],
             raw_hash=d["raw_hash"],
+            trace=d.get("trace", ""),
+            activation_count=d.get("activation_count", 0),
+            superseded_by=d.get("superseded_by"),
         )
 
     def get_entity_instance_ids(self) -> list[str]:
@@ -304,6 +313,62 @@ class Codebook:
             + 5  # sentiment levels
             + 5  # confidence levels
         )
+
+    # ── Code Similarity Matrix ───────────────────────────────────────────
+    # The brain doesn't match by exact codes — it matches by MEANING.
+    # "budget concerns" and "pricing issues" are semantically related
+    # even though they map to different codes.
+
+    # Relation clusters — codes that are semantically close
+    _RELATION_CLUSTERS: dict[int, set[int]] = {
+        # Pricing/money cluster
+        0: {RelationType.PRICE_CONCERN, RelationType.DISCOUNT_REQ,
+            RelationType.BUDGET_CYCLE, RelationType.HESITANT},
+        # Engagement cluster
+        1: {RelationType.WANTS, RelationType.REQUESTS, RelationType.ASKED_ABOUT,
+            RelationType.RE_ENGAGED},
+        # Positive progress cluster
+        2: {RelationType.TRIAL_STARTED, RelationType.TRIAL_POSITIVE,
+            RelationType.FEEDBACK, RelationType.SIGNED_UP},
+        # Negative signals cluster
+        3: {RelationType.WENT_QUIET, RelationType.DECLINED, RelationType.HESITANT,
+            RelationType.CANCELLED, RelationType.TRIAL_NEGATIVE},
+        # Communication cluster
+        4: {RelationType.SENT, RelationType.PROPOSAL_SENT, RelationType.MENTIONED,
+            RelationType.EXPRESSED},
+        # Organizational cluster
+        5: {RelationType.REPORTS_TO, RelationType.EXPANDING, RelationType.ESCALATED},
+        # Technical cluster
+        6: {RelationType.INTEGRATED, RelationType.BREAKING_DOWN, RelationType.COMPARED},
+        # Decision cluster
+        7: {RelationType.APPROVED, RelationType.REJECTED, RelationType.EVALUATES,
+            RelationType.CONFIRMS},
+        # Competitive cluster
+        8: {RelationType.LAUNCHED, RelationType.COMPETING, RelationType.COMPARED},
+    }
+
+    def relation_similarity(self, code_a: int, code_b: int) -> float:
+        """
+        Semantic similarity between two relation codes.
+        Same code = 1.0, same cluster = 0.7, different cluster = 0.0.
+        """
+        if code_a == code_b:
+            return 1.0
+        for cluster in self._RELATION_CLUSTERS.values():
+            if code_a in cluster and code_b in cluster:
+                return 0.7
+        return 0.0
+
+    def modifier_similarity(self, code_a: int, code_b: int) -> float:
+        """Semantic similarity between modifier codes."""
+        if code_a == code_b:
+            return 1.0
+        # Sentiment-aligned modifiers are related
+        negative = {Modifier.NEGATIVE, Modifier.URGENT, Modifier.ESCALATION, Modifier.COMPETITIVE}
+        positive = {Modifier.POSITIVE, Modifier.RESOLUTION, Modifier.HIGH_VALUE}
+        if (code_a in negative and code_b in negative) or (code_a in positive and code_b in positive):
+            return 0.6
+        return 0.0
 
 
 def make_codebook_strand(

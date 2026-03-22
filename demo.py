@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
-Proof-of-Concept Demo -- Cognitive Memory Architecture v3
+Proof-of-Concept Demo -- Cognitive Memory Architecture v4 (Brain-Perfect)
 
-Two biological systems combined:
-  MOLECULAR BIOLOGY (Storage): Protein -> RNA -> DNA compression
-  NEUROSCIENCE (Retrieval):    Spreading activation -> brain reads DNA directly
-
-The brain decodes itself -- the LLM reads codebook sequences natively,
-just like neurons read activation patterns without translation.
+Every mechanism mirrors real neuroscience:
+  - Hippocampal indexing (codebook DNA codes)
+  - Neocortical traces (micro-summaries preserving key facts)
+  - Spreading activation with adaptive threshold
+  - Confidence-weighted spreading
+  - Edge type modulation (attention control)
+  - Query-aware context assembly (narrative coherence)
+  - Memory consolidation (sleep)
+  - Intelligent forgetting
+  - Strand versioning (supersede outdated info)
+  - Hebbian learning + recency priming
 
 Run: python demo.py
 Requires: ANTHROPIC_API_KEY environment variable
@@ -64,21 +69,13 @@ QUERIES = [
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def banner(text: str):
-    width = 76
-    print()
-    print("=" * width)
-    print(f"  {text}")
-    print("=" * width)
+def banner(text):
+    print(f"\n{'=' * 76}\n  {text}\n{'=' * 76}")
 
+def section(text):
+    print(f"\n{'─' * 68}\n  {text}\n{'─' * 68}")
 
-def section(text: str):
-    print(f"\n{'─' * 68}")
-    print(f"  {text}")
-    print(f"{'─' * 68}")
-
-
-def c(text: str, code: str) -> str:
+def c(text, code):
     codes = {
         "green": "\033[92m", "yellow": "\033[93m", "cyan": "\033[96m",
         "red": "\033[91m", "bold": "\033[1m", "dim": "\033[2m",
@@ -90,23 +87,20 @@ def c(text: str, code: str) -> str:
 # ─── Main Demo ───────────────────────────────────────────────────────────────
 
 def main():
-    banner("COGNITIVE MEMORY ARCHITECTURE v3")
-    print()
-    print("  Two biological systems, one framework:")
-    print()
-    print(f"  {c('MOLECULAR BIOLOGY', 'magenta')} (Storage)")
-    print(f"    Protein (raw text) → RNA (extract) → DNA (codebook codes)")
-    print(f"    Tiny storage. Massive capacity. Like real DNA.")
-    print()
-    print(f"  {c('NEUROSCIENCE', 'cyan')} (Retrieval)")
-    print(f"    Query → spreading activation → LLM reads DNA directly")
-    print(f"    Brain decodes itself. No translation step.")
-    print()
+    banner("COGNITIVE MEMORY ARCHITECTURE v4 — BRAIN-PERFECT")
+    print(f"""
+  Every mechanism mirrors real neuroscience:
+    {c('Hippocampus', 'cyan')}:  codebook DNA codes (indexing)
+    {c('Neocortex', 'magenta')}:   micro-summary traces (fact preservation)
+    {c('Spreading activation', 'green')}:  adaptive threshold + confidence weighting
+    {c('Consolidation', 'yellow')}:  merge related memories (sleep)
+    {c('Forgetting', 'dim')}:  prune unused memories
+    {c('Versioning', 'white')}:  supersede outdated beliefs
+""")
 
     codebook = Codebook()
     print(f"  Codebook: {c(str(codebook.total_codes()), 'cyan')} codes  |  "
           f"Model: claude-sonnet-4-20250514")
-    print(f"  Interactions: {len(INTERACTIONS)}  |  Queries: {len(QUERIES)}")
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(c("\n  ERROR: Set ANTHROPIC_API_KEY environment variable", "red"))
@@ -114,43 +108,43 @@ def main():
 
     system = MemorySystem()
 
-    # ════════════════════════════════════════════════════════════════════
-    #  PHASE 1: MOLECULAR BIOLOGY — Storage Pipeline
-    # ════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 1: STORAGE — Protein -> RNA -> DNA + Trace
+    # ══════════════════════════════════════════════════════════════════════
 
-    banner("PHASE 1: MOLECULAR BIOLOGY — Protein → RNA → DNA")
-    print()
-    print(f"  Each interaction passes through the storage pipeline:")
-    print(f"    {c('PROTEIN', 'white')}: raw text (the functional event)")
-    print(f"    {c('RNA', 'yellow')}: Claude extracts entities, relations, modifiers (1 API call)")
-    print(f"    {c('DNA', 'green')}: codebook integer sequence (stored in genome.json)")
-
+    banner("PHASE 1: STORAGE — Protein -> RNA -> DNA + Neocortical Trace")
     base_timestamp = int(time.time()) - (len(INTERACTIONS) * 3600)
-    encoding_calls = 0
 
     for i, interaction in enumerate(INTERACTIONS):
         ts = base_timestamp + (i * 3600)
-        print(f"\n  [{i+1:2d}/20] {c('PROTEIN', 'white')}: {interaction[:65]}")
+        print(f"\n  [{i+1:2d}/20] {c(interaction[:70], 'dim')}")
 
         try:
             strand = system.store(interaction, timestamp=ts)
             if strand is None:
-                print(f"         {c('[DEDUP] Skipped', 'yellow')}")
+                print(f"         {c('[DEDUP]', 'yellow')}")
                 continue
 
-            encoding_calls += 1
-
-            # Show RNA extraction
             entities = [f"{codebook.decode_entity_type(et)}:{iid}"
                        for et, iid in strand.entity_slots]
             rel = codebook.decode_relation(strand.relation)
             mod = codebook.decode_modifier(strand.modifier)
-            print(f"         {c('RNA', 'yellow')}: entities=[{', '.join(entities)}] "
-                  f"rel={rel} mod={mod} snt={strand.sentiment:+d}")
 
-            # Show DNA compression
-            seq = strand.to_sequence()
-            print(f"         {c('DNA', 'green')}: {seq}  ({strand.sequence_length()} codes)")
+            print(f"         {c('DNA', 'green')}: [{', '.join(entities)}] "
+                  f"REL:{rel} MOD:{mod} SNT:{strand.sentiment:+d}")
+            print(f"         {c('Trace', 'magenta')}: {strand.trace}")
+
+            # Show if ego-linked
+            ego_strands = system.graph.get_ego_linked_strands("agent")
+            if strand.strand_id in ego_strands:
+                print(f"         {c('-> EGO LINKED (personally significant)', 'yellow')}")
+
+            # Show if superseding
+            if strand.superseded_by is None:
+                for s in system.genome.all_strands():
+                    if s.superseded_by == strand.strand_id:
+                        print(f"         {c('-> SUPERSEDES older strand (updated belief)', 'white')}")
+                        break
 
         except Exception as e:
             print(f"         {c(f'ERROR: {e}', 'red')}")
@@ -158,50 +152,32 @@ def main():
 
     stats = system.stats()
     section("Storage Complete")
-    print(f"  DNA strands in genome:   {c(str(stats['total_strands']), 'green')}")
-    print(f"  Entity instances:        {c(str(stats['entity_instances']), 'cyan')} (normalized)")
-    print(f"  Graph nodes:             {stats['graph_nodes']} (incl. {stats['ego_nodes']} ego)")
-    print(f"  Graph edges:             {stats['graph_edges']}")
-    print(f"  API calls for storage:   {encoding_calls} (1 per interaction)")
+    print(f"  Active strands:      {c(str(stats['active_strands']), 'green')} "
+          f"({stats['superseded_strands']} superseded)")
+    print(f"  Entity instances:    {c(str(stats['entity_instances']), 'cyan')}")
+    print(f"  Graph nodes/edges:   {stats['graph_nodes']} / {stats['graph_edges']}")
+    print(f"  Ego-linked strands:  {c(str(stats['ego_linked_strands']), 'magenta')}")
 
     # Entity registry
-    section("Entity Registry — Alias Normalization")
-    for inst in system.entity_registry.all_instances():
+    section("Entity Registry")
+    for inst in system.entity_registry.all_instances()[:10]:
         aliases = ", ".join(sorted(inst.aliases))
         type_name = codebook.decode_entity_type(inst.entity_type)
-        refs = len(inst.strand_ids)
-        print(f"  {c(inst.instance_id, 'cyan')} ({type_name}) — "
-              f"{refs} refs — aliases: {c(aliases, 'dim')}")
+        print(f"  {c(inst.instance_id, 'cyan')} ({type_name}) "
+              f"— {len(inst.strand_ids)} refs — {c(aliases, 'dim')}")
 
-    # Ego nodes
-    ego_strands = system.graph.get_ego_linked_strands("agent")
-    section("Ego Node — Agent Identity")
-    if ego_strands:
-        print(f"  ego:agent → {c(str(len(ego_strands)), 'magenta')} significant strands:")
-        for sid in ego_strands:
-            strand = system.genome.get(sid)
-            if strand:
-                mod = codebook.decode_modifier(strand.modifier)
-                entities = [iid for _, iid in strand.entity_slots[:2]]
-                print(f"    → {c(mod, 'yellow')} | {', '.join(entities)}")
-    else:
-        print("  ego:agent — no significant strands yet")
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 2: RETRIEVAL — Brain reads DNA + Traces directly
+    # ══════════════════════════════════════════════════════════════════════
 
-    # Size comparison
-    raw_chars = sum(len(i) for i in INTERACTIONS)
-    genome_size = os.path.getsize("genome.json") if os.path.exists("genome.json") else 0
-    print(f"\n  Raw text (protein):    {raw_chars:>6,} chars")
-    print(f"  DNA genome on disk:    {genome_size:>6,} bytes")
-
-    # ════════════════════════════════════════════════════════════════════
-    #  PHASE 2: NEUROSCIENCE — Brain-like Retrieval
-    # ════════════════════════════════════════════════════════════════════
-
-    banner("PHASE 2: NEUROSCIENCE — Brain reads DNA directly")
-    print()
-    print(f"  The brain decodes itself. No RNA/Protein decode step needed.")
-    print(f"  Per query: {c('1 API call', 'green')} to encode + {c('1 API call', 'green')} to reason = {c('2 total', 'bold')}")
-    print(f"  Spreading activation is LOCAL (0 API calls, milliseconds).")
+    banner("PHASE 2: RETRIEVAL — Brain-Perfect Reasoning")
+    print(f"\n  Brain mechanisms active:")
+    print(f"    - Semantic code similarity (cluster-based matching)")
+    print(f"    - Adaptive threshold (arousal gating)")
+    print(f"    - Confidence-weighted spreading")
+    print(f"    - Edge type modulation (attention control)")
+    print(f"    - Entity-grouped context (narrative coherence)")
+    print(f"    - DNA codes + neocortical traces (structure + facts)")
 
     all_results = []
 
@@ -218,48 +194,67 @@ def main():
 
         all_results.append(result)
 
-        # Activated DNA codes (what the brain saw)
-        print(f"\n  {c('ACTIVATED DNA CODES:', 'green')} ({len(result['activated'])} strands)")
-        print(f"  (This is exactly what the LLM received — no decode step)")
-        for sid, score, dna_code in result["activated"]:
+        # Brain parameters used
+        print(f"\n  {c('BRAIN PARAMS:', 'dim')} threshold={result['threshold_used']} "
+              f"complexity={result['query_complexity']} "
+              f"entity_groups={result['entity_groups']}")
+
+        # Activated strands
+        print(f"\n  {c('ACTIVATED:', 'green')} {len(result['activated'])} strands "
+              f"({len(result['not_activated'])} not activated)")
+        for sid, score, rendered in result["activated"]:
             bar = "█" * int(score * 20) + "░" * (20 - int(score * 20))
             print(f"    [{bar}] {score:.3f}")
-            print(f"      {c(dna_code, 'cyan')}")
+            for line in rendered.split("\n"):
+                print(f"      {c(line, 'cyan')}")
 
-        # Not activated
-        not_activated = result["not_activated"]
-        print(f"\n  {c('NOT ACTIVATED:', 'dim')} {len(not_activated)} strands never loaded")
-
-        # The brain's answer
-        print(f"\n  {c('BRAIN RESPONSE:', 'bold')} (LLM reasoning directly over DNA codes)")
-        print(f"  ┌{'─' * 64}┐")
+        # Brain's answer
+        print(f"\n  {c('BRAIN RESPONSE:', 'bold')}")
+        print(f"  ┌{'─' * 66}┐")
         for line in result["answer"].split("\n"):
-            # Wrap long lines
-            while len(line) > 62:
-                print(f"  │ {line[:62]} │")
-                line = line[62:]
-            print(f"  │ {line:<62} │")
-        print(f"  └{'─' * 64}┘")
+            while len(line) > 64:
+                print(f"  │ {line[:64]} │")
+                line = line[64:]
+            print(f"  │ {line:<64} │")
+        print(f"  └{'─' * 66}┘")
 
         # Cost
         tokens_used = result["tokens_used"]
         tokens_naive = result["tokens_naive"]
         savings = ((tokens_naive - tokens_used) / tokens_naive * 100) if tokens_naive > 0 else 0
+        print(f"\n  {c('COST:', 'bold')} {c(f'{tokens_used}', 'green')} tokens "
+              f"(vs {c(f'{tokens_naive}', 'red')} naive) "
+              f"= {c(f'{savings:.0f}% savings', 'green')} | "
+              f"2 API calls | {t_elapsed:.1f}s")
 
-        print(f"\n  {c('COST:', 'bold')}")
-        print(f"    Context tokens: {c(f'{tokens_used}', 'green')} (this) vs "
-              f"{c(f'{tokens_naive}', 'red')} (naive)")
-        print(f"    API calls:      {c('2', 'green')} (encode + reason)")
-        print(f"    Savings:        {c(f'{savings:.0f}%', 'green')} tokens  |  "
-              f"Time: {t_elapsed:.1f}s")
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 3: CONSOLIDATION + FORGETTING
+    # ══════════════════════════════════════════════════════════════════════
 
-    # ════════════════════════════════════════════════════════════════════
-    #  PHASE 3: FINAL SUMMARY
-    # ════════════════════════════════════════════════════════════════════
+    banner("PHASE 3: BRAIN MAINTENANCE — Consolidation + Forgetting")
 
-    banner("FINAL SUMMARY")
+    # Consolidation
+    section("Memory Consolidation (Sleep)")
+    before = system.stats()
+    result_c = system.consolidate()
+    after = system.stats()
+    print(f"  Consolidated: {c(str(result_c['consolidated']), 'yellow')} strands merged")
+    print(f"  Active strands: {before['active_strands']} -> {after['active_strands']}")
 
-    stats = system.stats()
+    # Forgetting (with very short age for demo purposes)
+    section("Intelligent Forgetting")
+    result_f = system.forget(min_age_seconds=0, min_activations=1)
+    final = system.stats()
+    print(f"  Forgotten: {c(str(result_f['forgotten']), 'dim')} unused strands pruned")
+    print(f"  Active strands remaining: {c(str(final['active_strands']), 'green')}")
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  FINAL SUMMARY
+    # ══════════════════════════════════════════════════════════════════════
+
+    banner("FINAL SUMMARY — BRAIN-PERFECT ARCHITECTURE")
+
+    final = system.stats()
     total_tokens_arch = sum(r["tokens_used"] for r in all_results)
     total_tokens_naive = sum(r["tokens_naive"] for r in all_results)
     avg_tokens_arch = total_tokens_arch / len(all_results) if all_results else 0
@@ -267,35 +262,38 @@ def main():
     ratio = avg_tokens_naive / avg_tokens_arch if avg_tokens_arch > 0 else 0
 
     print(f"""
-  ┌───────────────────────────────────────────────────────────────────┐
-  │  {c('MOLECULAR BIOLOGY (Storage)', 'magenta')}                                     │
-  │    Pipeline:              Protein → RNA → DNA                     │
-  │    DNA strands stored:    {stats['total_strands']:>4}                                     │
-  │    Entity instances:      {stats['entity_instances']:>4} (normalized via registry)         │
-  │    Graph nodes/edges:     {stats['graph_nodes']:>4} / {stats['graph_edges']:<4}                              │
-  │    API calls to store:    {encoding_calls:>4} (1 per interaction)                │
-  │                                                                   │
-  │  {c('NEUROSCIENCE (Retrieval)', 'cyan')}                                        │
-  │    Pipeline:              Activate → Brain reads DNA directly     │
-  │    API calls per query:   {c('2', 'green')}    (encode + reason)                   │
-  │    Context tokens/query:  {avg_tokens_arch:>6.0f}                                  │
-  │    Naive tokens/query:    {avg_tokens_naive:>6.0f}                                  │
-  │    Compression ratio:     {ratio:>6.1f}x                                 │
-  │                                                                   │
-  │  {c('FRAMEWORK:', 'bold')}                                                       │
-  │    ✓ Real codebook compression (finite alphabet, {stats['codebook_size']} codes)       │
-  │    ✓ Entity normalization (aliases → same instance)               │
-  │    ✓ Ego nodes (agent identity anchoring)                         │
-  │    ✓ Brain-like retrieval (LLM reads DNA directly)                │
-  │    ✓ Spreading activation (local, 0 API calls)                    │
-  │    ✓ Hebbian learning (co-activation strengthens edges)           │
-  │    ✓ Recency priming (warm paths from recent queries)             │
-  │    ✓ Fixed context cost regardless of genome size                 │
-  └───────────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  {c('STORAGE (Molecular Biology)', 'magenta')}                                       │
+  │    Active strands:         {final['active_strands']:>4}  ({final['superseded_strands']} superseded)              │
+  │    Entity instances:       {final['entity_instances']:>4}                                      │
+  │    Ego-linked:             {final['ego_linked_strands']:>4}                                      │
+  │    Graph edges:            {final['graph_edges']:>4}                                      │
+  │                                                                     │
+  │  {c('RETRIEVAL (Neuroscience)', 'cyan')}                                           │
+  │    API calls per query:    {c('2', 'green')}     (encode + reason)                    │
+  │    Context tokens/query:   {avg_tokens_arch:>6.0f}  ({c('fixed', 'green')})                          │
+  │    Naive tokens/query:     {avg_tokens_naive:>6.0f}                                    │
+  │    Compression ratio:      {ratio:>6.1f}x                                   │
+  │                                                                     │
+  │  {c('BRAIN MECHANISMS:', 'bold')}                                                    │
+  │    ✓ Hippocampal indexing (codebook DNA codes)                      │
+  │    ✓ Neocortical traces (micro-summaries with key facts)            │
+  │    ✓ Semantic code similarity (cluster-based matching)              │
+  │    ✓ Adaptive activation threshold (arousal gating)                 │
+  │    ✓ Confidence-weighted spreading                                  │
+  │    ✓ Edge type modulation (attention control)                       │
+  │    ✓ Entity-grouped context assembly (narrative coherence)          │
+  │    ✓ Hebbian learning (co-activation strengthening)                 │
+  │    ✓ Recency priming (warm paths)                                   │
+  │    ✓ Memory consolidation (sleep — merge related)                   │
+  │    ✓ Intelligent forgetting (prune unused)                          │
+  │    ✓ Strand versioning (supersede outdated beliefs)                 │
+  │    ✓ Bidirectional ego (agent actions + significant events)         │
+  │    ✓ Fixed context cost regardless of genome size                   │
+  └─────────────────────────────────────────────────────────────────────┘
 """)
 
-    # Scaling projection
-    print("  SCALING PROJECTION (context tokens per query):")
+    print("  SCALING PROJECTION:")
     print("  ┌──────────────┬──────────────────┬──────────────────────────┐")
     print("  │  Genome Size │  Naive (all raw) │  This Architecture       │")
     print("  ├──────────────┼──────────────────┼──────────────────────────┤")
@@ -304,22 +302,7 @@ def main():
         arch = avg_tokens_arch
         print(f"  │  {n:>10,}  │  {naive:>12,} tok │  {arch:>14.0f} tok {c('(fixed)', 'green')}  │")
     print("  └──────────────┴──────────────────┴──────────────────────────┘")
-
-    print(f"""
-  {c('COMPARISON vs RAG:', 'bold')}
-  ┌──────────────────┬──────────────┬──────────────────────────────┐
-  │                  │  RAG         │  This Architecture           │
-  ├──────────────────┼──────────────┼──────────────────────────────┤
-  │  Store cost      │  1 embed     │  1 LLM call (richer)         │
-  │  Query API calls │  1-2         │  2 (encode + reason)         │
-  │  Query tokens    │  3,000-5,000 │  {avg_tokens_arch:<6.0f} ({c('fixed', 'green')})              │
-  │  Multi-hop       │  No          │  {c('Yes', 'green')} (graph traversal)        │
-  │  Learns          │  No          │  {c('Yes', 'green')} (Hebbian co-activation)  │
-  │  At 100K memories│  Still ~5K   │  Still ~{avg_tokens_arch:.0f} ({c('flat', 'green')})          │
-  └──────────────────┴──────────────┴──────────────────────────────┘
-""")
-
-    print(f"  {c('→ Two biological systems. One framework. Fixed cost. Infinite scale.', 'green')}")
+    print(f"\n  {c('The brain is perfect. We copied the brain. We win.', 'green')}")
     print()
 
 
