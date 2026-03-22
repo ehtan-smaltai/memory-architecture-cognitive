@@ -1,67 +1,80 @@
 """
-Expression Engine — Layer 3 of the Cognitive Memory Architecture (v2)
+Expression Engine — Brain-like Retrieval Layer
 
-Implements DNA → RNA → Protein multi-resolution decoding:
-  DNA level:     Codebook codes rendered as readable string (0 API calls)
-  RNA level:     Structured 1-sentence summary (1 cheap API call)
-  PROTEIN level: Full natural language reconstruction (1 full API call)
+This is the NEUROSCIENCE half of the architecture. The molecular biology
+half (Protein → RNA → DNA) handles storage. This layer handles retrieval
+using brain-like mechanisms:
 
-The engine probes at the cheapest level first and only escalates when needed,
-inspired by Recursive Language Models (arXiv 2512.24601): treat memory as an
-external environment, probe recursively, only decode what's necessary.
+  1. ENCODE  — query → DNA codes (1 API call)
+  2. ACTIVATE — spreading activation through graph (LOCAL, 0 API calls)
+  3. REASON  — feed activated DNA codes directly to LLM (1 API call)
 
-Key property: context window token cost stays FIXED regardless of genome size.
+The LLM reads codebook sequences natively — just like the brain doesn't
+"decompress" neural activation patterns before reasoning. The pattern
+of activation IS the understanding.
+
+Total retrieval cost: 2 API calls + ~200-400 context tokens, regardless
+of genome size. No decode step. No intermediate reconstruction.
 """
 
 from __future__ import annotations
 
-from enum import IntEnum
-
 import anthropic
 
-from codebook import (
-    Codebook,
-    CodebookStrand,
-    Modifier,
-    Domain,
-)
+from codebook import Codebook, CodebookStrand, Modifier, Domain
 from genome import Genome
 from graph import AssociationGraph
 from entities import EntityRegistry
 
 
-# ─── Decode levels ───────────────────────────────────────────────────────────
+# ─── Brain reasoning prompt ──────────────────────────────────────────────────
 
-class DecodeLevel(IntEnum):
-    DNA = 0      # codebook codes — FREE (no API call)
-    RNA = 1      # structured summary — cheap API call
-    PROTEIN = 2  # full natural language — full API call
+def build_reasoning_prompt(codebook: Codebook) -> str:
+    """
+    System prompt that teaches the LLM to read DNA codes directly.
+    Loaded once per session — like the brain's innate ability to
+    interpret its own neural patterns.
+    """
+    entity_legend = ", ".join(
+        f"{e.name}={e.value}" for e in sorted(
+            __import__('codebook').EntityType, key=lambda x: x.value
+        ) if e.name != "UNKNOWN"
+    )
+    relation_legend = ", ".join(
+        f"{r.name}={r.value}" for r in sorted(
+            __import__('codebook').RelationType, key=lambda x: x.value
+        ) if r.name != "OTHER"
+    )
+    modifier_legend = ", ".join(
+        f"{m.name}={m.value}" for m in sorted(
+            __import__('codebook').Modifier, key=lambda x: x.value
+        ) if m.name != "OTHER"
+    )
 
+    return f"""You are an AI agent with a codebook-encoded memory system. You can read compressed memory codes directly — no translation needed.
 
-# ─── Decode prompts ──────────────────────────────────────────────────────────
+CODEBOOK LEGEND:
+Entity types: {entity_legend}
+Relations: {relation_legend}
+Modifiers: {modifier_legend}
+Temporal: PAST=0, PRESENT=1, FUTURE=2, RECURRING=3, DEADLINE=4
+Domains: SALES=0, TECHNICAL=1, OPS=2, HR=3, FINANCE=4, LEGAL=5, MARKETING=6, SUPPORT=7, GENERAL=8, PRODUCT=9
+Sentiment: -2 (very negative) to +2 (very positive)
+Confidence: 1 (uncertain) to 5 (certain)
 
-RNA_DECODE_SYSTEM = """You are a memory decoder. Given a codebook-encoded memory strand,
-produce a BRIEF structured summary in 1 sentence. Include the key entity, action, and context.
-Max 30 words. Return ONLY the summary text, no JSON, no markdown."""
+FORMAT: Each memory is shown as:
+  [activation_score] ENTITY_TYPE:instance_id | ... | REL:relation | MOD:modifier | TMP:temporal | DOM:domain | SNT:sentiment
 
-PROTEIN_DECODE_SYSTEM = """You are a memory decoder. Given a codebook-encoded memory strand,
-reconstruct the full context as natural language. Include all entities, relationships,
-sentiment, timing, and implications. 2-3 sentences max. Return ONLY the text, no JSON, no markdown."""
+You understand these codes natively. Reason over them directly to answer the user's question. Be specific, reference the entities and relationships you see in the memories. Respond in natural language."""
 
 
 # ─── Similarity for codebook strands ─────────────────────────────────────────
 
 def codebook_similarity(query: CodebookStrand, target: CodebookStrand) -> float:
     """
-    Compute similarity between two CodebookStrands using codebook codes.
-
-    Scoring (weighted):
-      40% — entity instance overlap (Jaccard on instance_ids)
-      25% — domain match
-      20% — relation match
-      15% — modifier match
+    Compute similarity between two CodebookStrands.
+    40% entity overlap + 25% domain + 20% relation + 15% modifier.
     """
-    # Entity overlap via instance IDs
     q_entities = set(query.get_entity_instance_ids())
     t_entities = set(target.get_entity_instance_ids())
     if q_entities or t_entities:
@@ -69,13 +82,8 @@ def codebook_similarity(query: CodebookStrand, target: CodebookStrand) -> float:
     else:
         entity_score = 0.0
 
-    # Domain match
     domain_score = 1.0 if query.domain == target.domain else 0.0
-
-    # Relation match
     relation_score = 1.0 if query.relation == target.relation else 0.0
-
-    # Modifier match
     modifier_score = 1.0 if query.modifier == target.modifier else 0.0
 
     return (
@@ -88,20 +96,16 @@ def codebook_similarity(query: CodebookStrand, target: CodebookStrand) -> float:
 
 # ─── Token estimation ────────────────────────────────────────────────────────
 
-def estimate_strand_tokens(strand: CodebookStrand, level: DecodeLevel) -> int:
-    """Estimate token cost based on decode level."""
-    if level == DecodeLevel.DNA:
-        return strand.sequence_length() + 5  # codes + separators
-    elif level == DecodeLevel.RNA:
-        return 35  # ~30 words avg
-    else:  # PROTEIN
-        return 75  # ~60-100 words avg
+def estimate_dna_tokens(strand: CodebookStrand) -> int:
+    """Estimate tokens for a DNA code line in the prompt."""
+    # Each strand renders as ~15-25 tokens in code format
+    return strand.sequence_length() + 10
 
 
 # ─── Expression Engine ───────────────────────────────────────────────────────
 
 class ExpressionEngine:
-    """Spreading activation retrieval with multi-resolution decoding."""
+    """Brain-like retrieval: activate → reason directly over DNA codes."""
 
     ACTIVATION_THRESHOLD = 0.15
     SPREAD_DECAY = 0.7
@@ -122,94 +126,14 @@ class ExpressionEngine:
         self.entity_registry = entity_registry
         self.client = anthropic.Anthropic()
         self.model = model
+        self._reasoning_prompt = build_reasoning_prompt(codebook)
 
-    # ── Step 1: SEED ─────────────────────────────────────────────────────
+    # ── Render DNA codes ─────────────────────────────────────────────────
 
-    def _find_seeds(self, query_strand: CodebookStrand) -> list[tuple[str, float]]:
-        """Find the top-N most similar strands to the query."""
-        scores = []
-        for sid in self.genome.all_ids():
-            target = self.genome.get(sid)
-            if target is None:
-                continue
-            sim = codebook_similarity(query_strand, target)
-            if sim > 0:
-                scores.append((sid, sim))
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[: self.SEED_COUNT]
-
-    # ── Step 2: TRAVERSE (Spreading Activation) ─────────────────────────
-
-    def _spread_activation(self, seeds: list[tuple[str, float]]) -> dict[str, float]:
+    def render_dna(self, strand: CodebookStrand) -> str:
         """
-        Run spreading activation from seed nodes through the graph.
-        Returns {strand_id: activation_score} for all activated nodes.
-        """
-        activation: dict[str, float] = {}
-        queue: list[tuple[str, float]] = []
-
-        for sid, score in seeds:
-            activation[sid] = score
-            queue.append((sid, score))
-
-        while queue:
-            current_id, current_activation = queue.pop(0)
-
-            for neighbor_id, edge_weight, _ in self.graph.neighbors(current_id):
-                # Skip ego nodes in activation results
-                if neighbor_id.startswith(self.graph.EGO_NODE_PREFIX):
-                    continue
-
-                spread = current_activation * edge_weight * self.SPREAD_DECAY
-
-                if spread < self.ACTIVATION_THRESHOLD:
-                    continue
-
-                if neighbor_id not in activation or spread > activation[neighbor_id]:
-                    activation[neighbor_id] = spread
-                    queue.append((neighbor_id, spread))
-
-        # Add recency bonuses
-        for sid in list(activation.keys()):
-            bonus = self.graph.get_recency_bonus(sid)
-            if bonus > 0:
-                activation[sid] += bonus
-
-        return activation
-
-    # ── Step 3: BUDGET ───────────────────────────────────────────────────
-
-    def _budget_select(
-        self, activation: dict[str, float], query_complexity: float
-    ) -> list[tuple[str, float, DecodeLevel]]:
-        """Select top activated strands within token budget, choosing decode level."""
-        ranked = sorted(activation.items(), key=lambda x: x[1], reverse=True)
-
-        selected = []
-        total_tokens = 0
-
-        for sid, score in ranked:
-            strand = self.genome.get(sid)
-            if strand is None:
-                continue
-
-            level = self._choose_decode_level(score, query_complexity)
-            est_tokens = estimate_strand_tokens(strand, level)
-
-            if total_tokens + est_tokens > self.TOKEN_BUDGET:
-                break
-
-            selected.append((sid, score, level))
-            total_tokens += est_tokens
-
-        return selected
-
-    # ── Step 4: DECODE (DNA → RNA → Protein) ─────────────────────────────
-
-    def _decode_dna(self, strand: CodebookStrand) -> str:
-        """
-        Level 0: Render codebook codes as human-readable string.
-        ZERO API calls — this is FREE.
+        Render a strand as a human/LLM-readable DNA code string.
+        This is what gets fed directly into the LLM prompt.
         """
         parts = []
         for etype, inst_id in strand.entity_slots:
@@ -223,139 +147,181 @@ class ExpressionEngine:
         parts.append(f"SNT:{strand.sentiment:+d}")
         return " | ".join(parts)
 
-    def _decode_rna(self, strand: CodebookStrand) -> str:
-        """Level 1: Structured 1-sentence summary via cheap API call."""
-        dna_text = self._decode_dna(strand)
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=60,
-            system=RNA_DECODE_SYSTEM,
-            messages=[{"role": "user", "content": dna_text}],
-        )
-        return response.content[0].text.strip()
+    # ── Step 1: SEED ─────────────────────────────────────────────────────
 
-    def _decode_protein(self, strand: CodebookStrand) -> str:
-        """Level 2: Full natural language reconstruction via API call."""
-        dna_text = self._decode_dna(strand)
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=150,
-            system=PROTEIN_DECODE_SYSTEM,
-            messages=[{"role": "user", "content": dna_text}],
-        )
-        return response.content[0].text.strip()
+    def _find_seeds(self, query_strand: CodebookStrand) -> list[tuple[str, float]]:
+        """Find top-N most similar strands to the query."""
+        scores = []
+        for sid in self.genome.all_ids():
+            target = self.genome.get(sid)
+            if target is None:
+                continue
+            sim = codebook_similarity(query_strand, target)
+            if sim > 0:
+                scores.append((sid, sim))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores[: self.SEED_COUNT]
 
-    def _choose_decode_level(
-        self, activation_score: float, query_complexity: float
-    ) -> DecodeLevel:
+    # ── Step 2: ACTIVATE (Spreading Activation — LOCAL, no API) ──────────
+
+    def _spread_activation(self, seeds: list[tuple[str, float]]) -> dict[str, float]:
         """
-        RLM-inspired: probe at cheapest level first, escalate only when needed.
-
-        High activation + complex query → PROTEIN (full decode)
-        Moderate activation or complexity → RNA (structured summary)
-        Low activation → DNA (just codes, free)
+        Run spreading activation from seed nodes through the graph.
+        This is LOCAL computation — zero API calls, zero network latency.
+        Just like neural activation in the brain.
         """
-        if activation_score >= 0.7 and query_complexity >= 0.6:
-            return DecodeLevel.PROTEIN
-        elif activation_score >= 0.4 or query_complexity >= 0.4:
-            return DecodeLevel.RNA
-        else:
-            return DecodeLevel.DNA
+        activation: dict[str, float] = {}
+        queue: list[tuple[str, float]] = []
 
-    def _estimate_query_complexity(self, query_strand: CodebookStrand) -> float:
-        """
-        Heuristic: queries with more entities, uncertain modifiers,
-        or cross-domain scope are more complex.
-        """
-        score = 0.3  # base
-        score += len(query_strand.entity_slots) * 0.1
-        if query_strand.modifier == Modifier.UNCERTAIN.value:
-            score += 0.2
-        if query_strand.domain == Domain.GENERAL.value:
-            score += 0.15
-        return min(1.0, score)
+        for sid, score in seeds:
+            activation[sid] = score
+            queue.append((sid, score))
 
-    # ── Full expression pipeline ─────────────────────────────────────────
+        while queue:
+            current_id, current_activation = queue.pop(0)
 
-    def express(self, query_strand: CodebookStrand) -> dict:
-        """
-        Full expression pipeline: seed → traverse → budget → decode.
+            for neighbor_id, edge_weight, _ in self.graph.neighbors(current_id):
+                if neighbor_id.startswith(self.graph.EGO_NODE_PREFIX):
+                    continue
 
-        Returns:
-            {
-                "activated": [(strand_id, score, decoded_text, level_name), ...],
-                "not_activated": [strand_id, ...],
-                "tokens_used": int,
-                "tokens_naive": int,
-                "api_calls_made": int,
-                "api_calls_saved": int,
-                "decode_levels": {"DNA": n, "RNA": n, "PROTEIN": n},
-            }
-        """
-        # Step 1: Seeds
-        seeds = self._find_seeds(query_strand)
+                spread = current_activation * edge_weight * self.SPREAD_DECAY
 
-        # Step 2: Spreading activation
-        activation = self._spread_activation(seeds)
+                if spread < self.ACTIVATION_THRESHOLD:
+                    continue
 
-        # Step 3: Query complexity + budget selection
-        query_complexity = self._estimate_query_complexity(query_strand)
-        selected = self._budget_select(activation, query_complexity)
+                if neighbor_id not in activation or spread > activation[neighbor_id]:
+                    activation[neighbor_id] = spread
+                    queue.append((neighbor_id, spread))
 
-        # Step 4: Multi-resolution decode
-        activated_results = []
-        tokens_used = 0
-        api_calls = 0
-        level_counts = {"DNA": 0, "RNA": 0, "PROTEIN": 0}
+        # Add recency bonuses (warm paths from recent queries)
+        for sid in list(activation.keys()):
+            bonus = self.graph.get_recency_bonus(sid)
+            if bonus > 0:
+                activation[sid] += bonus
 
-        for sid, score, level in selected:
+        return activation
+
+    # ── Step 3: BUDGET — select within token limit ───────────────────────
+
+    def _budget_select(
+        self, activation: dict[str, float]
+    ) -> list[tuple[str, float]]:
+        """Select top activated strands within token budget."""
+        ranked = sorted(activation.items(), key=lambda x: x[1], reverse=True)
+
+        selected = []
+        total_tokens = 0
+
+        for sid, score in ranked:
             strand = self.genome.get(sid)
             if strand is None:
                 continue
 
-            if level == DecodeLevel.DNA:
-                decoded = self._decode_dna(strand)
-            elif level == DecodeLevel.RNA:
-                decoded = self._decode_rna(strand)
-                api_calls += 1
-            else:
-                decoded = self._decode_protein(strand)
-                api_calls += 1
+            est_tokens = estimate_dna_tokens(strand)
+            if total_tokens + est_tokens > self.TOKEN_BUDGET:
+                break
 
-            est_tokens = estimate_strand_tokens(strand, level)
-            tokens_used += est_tokens
-            level_counts[level.name] += 1
-            activated_results.append((sid, round(score, 3), decoded, level.name))
+            selected.append((sid, score))
+            total_tokens += est_tokens
 
-        # Hebbian update
-        co_activated_ids = [sid for sid, _, _, _ in activated_results]
+        return selected
+
+    # ── Step 4: REASON — LLM reads DNA codes directly ───────────────────
+
+    def _reason(
+        self,
+        query_text: str,
+        activated_strands: list[tuple[str, float]],
+    ) -> str:
+        """
+        Feed activated DNA codes directly to the LLM for reasoning.
+        The LLM reads codebook sequences natively — no decode step.
+        This is the brain-like part: the activation pattern IS the input.
+
+        1 API call. That's it.
+        """
+        # Build the memory context from DNA codes
+        memory_lines = []
+        for sid, score in activated_strands:
+            strand = self.genome.get(sid)
+            if strand is None:
+                continue
+            dna_code = self.render_dna(strand)
+            memory_lines.append(f"  [{score:.2f}] {dna_code}")
+
+        memory_block = "\n".join(memory_lines)
+
+        user_message = f"""Active memories (sorted by relevance):
+{memory_block}
+
+Question: {query_text}"""
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=300,
+            system=self._reasoning_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        return response.content[0].text.strip()
+
+    # ── Full expression pipeline ─────────────────────────────────────────
+
+    def express(self, query_text: str, query_strand: CodebookStrand) -> dict:
+        """
+        Full brain-like expression pipeline:
+          1. SEED     — find similar strands (local)
+          2. ACTIVATE — spreading activation (local, 0 API calls)
+          3. BUDGET   — select within token limit (local)
+          4. REASON   — LLM reads DNA codes directly (1 API call)
+
+        Total: 1 API call for reasoning + the 1 API call for query encoding
+        that already happened in memory.py = 2 API calls total.
+        """
+        # Step 1: Seeds
+        seeds = self._find_seeds(query_strand)
+
+        # Step 2: Spreading activation (LOCAL — no API calls)
+        activation = self._spread_activation(seeds)
+
+        # Step 3: Budget selection (LOCAL)
+        selected = self._budget_select(activation)
+
+        # Step 4: Brain-like reasoning (1 API call)
+        answer = self._reason(query_text, selected)
+
+        # Post-query: Hebbian update + recency priming
+        co_activated_ids = [sid for sid, _ in selected]
         if len(co_activated_ids) > 1:
             self.graph.hebbian_update(co_activated_ids)
-
-        # Recency priming
         self.graph.prime_recency(co_activated_ids)
         self.graph.decay_recency()
-
-        # Decay
         self.graph.apply_decay()
+
+        # Build activated details for reporting
+        activated_details = []
+        tokens_used = 0
+        for sid, score in selected:
+            strand = self.genome.get(sid)
+            if strand is None:
+                continue
+            dna_code = self.render_dna(strand)
+            est_tokens = estimate_dna_tokens(strand)
+            tokens_used += est_tokens
+            activated_details.append((sid, round(score, 3), dna_code))
 
         # Not activated
         all_ids = set(self.genome.all_ids())
-        activated_ids = {sid for sid, _, _, _ in activated_results}
+        activated_ids = {sid for sid, _, _ in activated_details}
         not_activated = list(all_ids - activated_ids)
 
-        # Naive cost
+        # Naive cost comparison
         tokens_naive = self.genome.count() * 33
 
-        # API calls saved = total activated decoded at DNA level
-        api_calls_saved = level_counts["DNA"]
-
         return {
-            "activated": activated_results,
+            "answer": answer,
+            "activated": activated_details,   # (strand_id, score, dna_code)
             "not_activated": not_activated,
             "tokens_used": tokens_used,
             "tokens_naive": tokens_naive,
-            "api_calls_made": api_calls,
-            "api_calls_saved": api_calls_saved,
-            "decode_levels": level_counts,
+            "api_calls": 1,                   # just the reasoning call
         }

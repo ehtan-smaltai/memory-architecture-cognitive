@@ -1,17 +1,21 @@
 """
-MemorySystem — Unified interface for the Cognitive Memory Architecture (v2)
+MemorySystem — Unified Interface for the Cognitive Memory Architecture
 
-Ties all three layers together:
-  Layer 1 — DNA Encoder:  raw text → CodebookStrand (finite alphabet)
-  Layer 2 — Association Graph:  strand relationships + ego nodes + recency
-  Layer 3 — Expression Engine:  spreading activation → DNA/RNA/Protein decode
+Combines two biological systems:
 
-New in v2:
-  - Codebook-constrained encoding (real compression)
-  - Entity instance registry (normalized cross-strand linking)
-  - Ego nodes (agent identity anchoring)
-  - Multi-resolution decode (DNA → RNA → Protein)
-  - Recency priming (recently activated paths stay warm)
+  MOLECULAR BIOLOGY (Storage):
+    Protein (raw interaction) → RNA (transcription/extraction) → DNA (codebook compression)
+
+  NEUROSCIENCE (Retrieval):
+    Query → encode → spreading activation (local) → LLM reads DNA directly → answer
+
+The key insight: DNA sits at the intersection of both systems.
+It is both the OUTPUT of the molecular storage pipeline and the
+INPUT to the brain-like retrieval pipeline.
+
+API calls per operation:
+  store():  1 call (RNA transcription — extract + compress to DNA)
+  query():  2 calls (1 to encode query to DNA + 1 for brain-like reasoning)
 """
 
 from __future__ import annotations
@@ -26,7 +30,11 @@ from expression import ExpressionEngine
 
 
 class MemorySystem:
-    """Three-layer cognitive memory architecture with codebook encoding."""
+    """
+    Two-system cognitive memory:
+      Storage  — Molecular biology (Protein → RNA → DNA)
+      Retrieval — Neuroscience (spreading activation + direct DNA reasoning)
+    """
 
     def __init__(
         self,
@@ -37,13 +45,21 @@ class MemorySystem:
     ):
         self.codebook = Codebook()
         self.entity_registry = EntityRegistry(path=entities_path)
+
+        # The RNA transcription layer (encodes protein → DNA)
         self.encoder = DNAEncoder(
             codebook=self.codebook,
             entity_registry=self.entity_registry,
             model=model,
         )
+
+        # The genome (DNA storage)
         self.genome = Genome(path=genome_path)
+
+        # The association graph (neural connections)
         self.graph = AssociationGraph(path=graph_path)
+
+        # The brain (retrieval via direct DNA reasoning)
         self.expression = ExpressionEngine(
             genome=self.genome,
             graph=self.graph,
@@ -51,6 +67,7 @@ class MemorySystem:
             entity_registry=self.entity_registry,
             model=model,
         )
+
         self._recent_ids: list[str] = list(self.genome.all_ids())
 
         # Ensure ego node exists
@@ -58,27 +75,29 @@ class MemorySystem:
 
     def store(self, raw_text: str, timestamp: int | None = None) -> CodebookStrand | None:
         """
-        Encode and store a raw interaction.
+        MOLECULAR BIOLOGY PIPELINE: Protein → RNA → DNA
 
-        1. Dedup check via raw text hash
-        2. Encode to CodebookStrand (codebook-constrained)
-        3. Store in genome
-        4. Register in association graph with entity-based edges
-        5. Auto-link to ego node if personally significant
+        1. Protein: raw_text IS the protein (the functional interaction)
+        2. RNA transcription: Claude API extracts structured fields (1 API call)
+        3. DNA compression: map to codebook integer sequence
+        4. Store in genome.json
+        5. Register in association graph
+        6. Auto-link to ego node if significant
 
-        Returns the created strand, or None if duplicate.
+        Returns the DNA strand, or None if duplicate.
         """
+        # Dedup check
         raw_hash = hashlib.sha256(raw_text.encode()).hexdigest()
         if self.genome.has_hash(raw_hash):
             return None
 
-        # Layer 1: Encode
+        # RNA transcription → DNA compression (1 API call)
         strand = self.encoder.encode(raw_text, timestamp=timestamp)
 
-        # Store in genome
+        # Store DNA in genome
         self.genome.add(strand)
 
-        # Layer 2: Add to graph with entity-registry edges
+        # Build neural connections in association graph
         self.graph.add_strand(
             strand,
             recent_ids=self._recent_ids,
@@ -86,7 +105,7 @@ class MemorySystem:
             genome_getter=self.genome.get,
         )
 
-        # Auto-link to ego if urgent, deadline, or escalation
+        # Auto-link to ego if urgent/deadline/escalation
         if strand.modifier in (
             Modifier.URGENT.value,
             Modifier.DEADLINE.value,
@@ -99,16 +118,33 @@ class MemorySystem:
 
     def query(self, query_text: str) -> dict:
         """
-        Query the memory system via spreading activation + multi-resolution decode.
+        NEUROSCIENCE PIPELINE: Brain-like retrieval
 
-        Returns expression result with activated memories, scores, decode levels,
-        token costs, and API call savings.
+        1. Encode query to DNA codes (1 API call)
+        2. Spreading activation through graph (LOCAL, 0 API calls)
+        3. Budget selection within token limit (LOCAL)
+        4. Feed activated DNA codes directly to LLM (1 API call)
+
+        Total: 2 API calls. ~200-400 context tokens. Fixed regardless of genome size.
+
+        Returns:
+            {
+                "answer": str,           # LLM's response
+                "activated": [...],      # (strand_id, score, dna_code)
+                "not_activated": [...],  # strand_ids not activated
+                "tokens_used": int,
+                "tokens_naive": int,
+                "api_calls": int,        # always 1 (+ 1 for encoding = 2 total)
+            }
         """
+        # Encode query to DNA (1 API call — the RNA transcription of the query)
         query_strand = self.encoder.encode(query_text)
-        return self.expression.express(query_strand)
+
+        # Brain-like retrieval (1 API call for reasoning)
+        return self.expression.express(query_text, query_strand)
 
     def stats(self) -> dict:
-        """Return system statistics."""
+        """System statistics."""
         return {
             "total_strands": self.genome.count(),
             "graph_nodes": self.graph.node_count(),

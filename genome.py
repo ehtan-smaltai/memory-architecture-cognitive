@@ -1,12 +1,15 @@
 """
-DNA Encoder — Layer 1 of the Cognitive Memory Architecture (v2)
+Genome — Molecular Biology Storage Pipeline
 
-Compresses raw interactions into CodebookStrand units using a finite
-alphabet of semantic primitives. The Claude API is constrained to select
-from the codebook — no free-form text extraction.
+Implements the storage half of the architecture:
+  Protein (raw interaction) → RNA (transcription) → DNA (codebook compression)
 
-Key change from v1: strands are fixed-width integer sequences, not
-variable-length JSON. Real compression, not just structured extraction.
+  - Protein: the raw text input IS the protein — the functional event
+  - RNA transcription: Claude API extracts structured fields from raw text
+  - DNA compression: map extracted fields to codebook integer codes
+
+The output is a CodebookStrand — a fixed-width integer sequence stored
+in genome.json. This is the DNA that the brain-like retrieval layer reads.
 """
 
 from __future__ import annotations

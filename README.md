@@ -1,108 +1,115 @@
 # Cognitive Memory Architecture
 
-A biologically-inspired agent memory system with **real DNA-like codebook encoding**, **graph-based spreading activation**, **entity normalization**, and **multi-resolution decoding**.
+Two biological systems combined into one framework for AI agent memory.
 
-## The Problem
+**Molecular Biology** solves storage — Protein → RNA → DNA compression.
+**Neuroscience** solves retrieval — spreading activation + brain reads DNA directly.
 
-Current LLM memory systems face a fundamental tradeoff: store more memories → use more context tokens. This architecture breaks that constraint by encoding memories as fixed-width codebook sequences that stay opaque until spreading activation selectively decodes them.
+## The Core Idea
 
-## What Makes This Different
+DNA is the most efficient information storage in the known universe — 1 gram stores 215 petabytes. The brain is the most efficient retrieval system — millisecond recall without "decompressing" anything.
 
-| Property | RAG / MemGPT / SYNAPSE | This Architecture |
-|----------|----------------------|-------------------|
-| Storage format | Raw text / embeddings / KG triples | **Fixed-width codebook sequences** |
-| Compression | None or learned (continuous) | **Discrete finite alphabet (~200 codes)** |
-| Retrieval | Similarity search / function calls | **Spreading activation through graph** |
-| Decoding | Always full text | **DNA → RNA → Protein (3 resolution levels)** |
-| Entity handling | Raw string matching | **Normalized entity registry with aliases** |
-| Agent identity | None | **Ego nodes with identity anchoring** |
+This architecture uses **molecular biology for how memories are stored** and **neuroscience for how memories are retrieved**. DNA sits at the intersection: the output of storage AND the input to retrieval.
 
 ## Architecture
 
 ```
-                        ┌─────────────────────────────────┐
-                        │         CODEBOOK (v2)           │
-                        │  ~200 codes: EntityType,        │
-                        │  RelationType, Modifier,        │
-                        │  TemporalMarker, Domain         │
-                        └──────────┬──────────────────────┘
-                                   │
-Raw Text ─→ [DNA Encoder] ────────→ CodebookStrand (fixed-width integer sequence)
-                │                          │
-                │                          ▼
-                │              [Entity Registry]
-                │              normalize mentions
-                │              "Sarah" = "Acme's CTO"
-                │                          │
-                │                          ▼
-                │              [Association Graph]
-                │              temporal + entity + semantic
-                │              + causal (Hebbian) + ego edges
-                │                          │
-                │                          ▼
-Query ─→ [Expression Engine] ──→ Spreading Activation
-                                       │
-                            ┌──────────┼──────────┐
-                            ▼          ▼          ▼
-                         [DNA]      [RNA]    [PROTEIN]
-                        0 calls   1 cheap    1 full
-                        ~10 tok   ~35 tok    ~75 tok
+STORAGE (Molecular Biology)              RETRIEVAL (Neuroscience)
+━━━━━━━━━━━━━━━━━━━━━━━━━━              ━━━━━━━━━━━━━━━━━━━━━━━
+
+Raw interaction                          User query
+    ↓                                        ↓
+[PROTEIN] — the event itself             [ENCODE] — query → DNA codes
+    ↓                                        ↓
+[RNA] — extract entities,                [ACTIVATE] — spreading activation
+        relations, modifiers                 through association graph
+        (1 API call)                         (LOCAL — 0 API calls)
+    ↓                                        ↓
+[DNA] — codebook integer sequence        [REASON] — feed DNA codes directly
+        (stored in genome.json)              to LLM (1 API call)
+                                             ↓
+        ←─── DNA connects both ───→      Brain reads codes natively.
+                                         No decode step needed.
 ```
 
-## The Three Layers
+## Why Brain-Like Retrieval?
 
-### Layer 1: DNA Encoder (`genome.py` + `codebook.py`)
-Compresses raw text into **CodebookStrand** units using a finite alphabet of ~200 semantic primitives. The Claude API is constrained to select from codebook codes — no free-form extraction.
+The brain doesn't "decompress" memories before thinking about them. When neurons fire, the **activation pattern IS the understanding**. Similarly, the LLM reads codebook sequences directly — no translation back to English needed.
 
-A strand is a fixed-width integer sequence:
 ```
-[ORG:1, PERSON:0] → [REL:PRICE_CONCERN:126] → [MOD:NEGATIVE:202] → [TMP:FUTURE:302] → [DOM:SALES:400] → [SNT:500] → [CNF:604]
+OLD approach (v1-v2):
+  DNA codes → [API call to decode to English] → feed to LLM → answer
+  Cost: 4-6 API calls per query
+
+BRAIN-LIKE approach (v3):
+  DNA codes → feed directly to LLM → answer
+  Cost: 2 API calls per query (encode + reason)
 ```
 
-### Layer 2: Association Graph (`graph.py` + `entities.py`)
+## Cost Comparison
+
+```
+                    Store          Query              Context tokens
+                    ─────          ─────              ──────────────
+RAG:                1 embed        1 LLM call         ~3,000-5,000
+MemGPT:             1 LLM call     2-5 function calls ~2,000-4,000
+This architecture:  1 LLM call     2 LLM calls        ~200-400 (FIXED)
+```
+
+### Scaling
+
+| Genome Size | Naive Cost | RAG | This Architecture |
+|------------|-----------|-----|-------------------|
+| 20 | 660 tok | ~3,000 tok | ~200 tok |
+| 100 | 3,300 tok | ~4,000 tok | ~200 tok |
+| 1,000 | 33,000 tok | ~5,000 tok | ~200 tok |
+| 10,000 | 330,000 tok | ~5,000 tok | ~200 tok |
+| 100,000 | 3.3M tok | ~5,000 tok | ~200 tok |
+| 1,000,000 | 33M tok | ~5,000 tok | **~200 tok** |
+
+RAG's token cost grows with chunk size and K. This architecture's cost is **fixed** — determined only by the token budget, not the genome size.
+
+## The Three Storage Layers
+
+### Protein (Input)
+The raw interaction — the functional event that happened. This is the input to the storage pipeline. Like biological proteins that do the actual work in cells.
+
+### RNA Transcription (`genome.py`)
+Claude API extracts structured fields from raw text: entities, relations, modifiers, sentiment, temporal markers. This is the transcription step — converting functional events into a structured intermediate form. **1 API call per memory.**
+
+### DNA Compression (`codebook.py`)
+Maps extracted fields to a finite alphabet of ~96 codebook codes across 5 dimensions:
+- **EntityType** (17 codes): PERSON, ORG, PRODUCT, METRIC, ...
+- **RelationType** (41 codes): WANTS, BLOCKS, CONCERNS, PRICE_CONCERN, ...
+- **Modifier** (13 codes): URGENT, POSITIVE, NEGATIVE, DEADLINE, ...
+- **TemporalMarker** (5 codes): PAST, PRESENT, FUTURE, RECURRING, DEADLINE
+- **Domain** (10 codes): SALES, TECHNICAL, OPS, FINANCE, ...
+
+A memory becomes a fixed-width integer sequence: `[1, 0, 26, 2, 1, 0, 499, 604]`
+
+### Entity Registry (`entities.py`)
+Normalizes entity mentions across strands. "Sarah", "Acme's CTO", "Sarah Chen" all resolve to the same `instance_id` via fuzzy alias matching.
+
+## The Retrieval Layer
+
+### Association Graph (`graph.py`)
 A weighted directed graph with 5 edge types:
 - **temporal** — strands close in time
-- **entity_shared** — strands sharing a normalized entity instance
+- **entity_shared** — strands sharing normalized entity instances
 - **semantic** — strands with matching domain + relation codes
-- **causal** — co-activated strands (Hebbian: "neurons that fire together wire together")
-- **ego** — links from agent identity nodes to personally significant strands
+- **causal** — co-activated strands (Hebbian learning)
+- **ego** — agent identity anchoring to significant strands
 
-Features:
-- **Entity Registry**: normalizes "Sarah", "Acme's CTO", "Sarah Chen" → same instance_id
-- **Ego Nodes**: anchor agent identity, auto-link urgent/deadline/escalation strands
-- **Recency Priming**: recently activated paths stay "warm" with elevated activation
+Features: ego nodes, recency priming, Hebbian co-activation learning.
 
-### Layer 3: Expression Engine (`expression.py`)
-Multi-resolution spreading activation retrieval:
+### Expression Engine (`expression.py`)
+Brain-like retrieval in 4 steps:
+1. **SEED** — encode query, find similar strands (local)
+2. **ACTIVATE** — spreading activation through graph (local, 0 API calls)
+3. **BUDGET** — select top strands within token limit (local)
+4. **REASON** — feed DNA codes directly to LLM (1 API call)
 
-1. **SEED** — encode query with codebook, find 3 most similar strands
-2. **TRAVERSE** — spread activation through graph (halts when activation < 0.15)
-3. **BUDGET** — select top strands within 400-token limit
-4. **DECODE** — choose resolution level per strand:
-   - **DNA** (activation < 0.4): render codebook codes — **0 API calls, FREE**
-   - **RNA** (moderate): 1-sentence structured summary — 1 cheap API call
-   - **PROTEIN** (high activation + complex query): full natural language — 1 full API call
-
-## Key Property: Fixed Context Cost
-
-```
-Genome Size  │  Naive Cost      │  This Architecture
-──────────── │ ──────────────── │ ──────────────────
-         20  │         660 tok  │         ~120 tok
-        100  │       3,300 tok  │         ~120 tok
-      1,000  │      33,000 tok  │         ~120 tok
-     10,000  │     330,000 tok  │         ~120 tok
-    100,000  │   3,300,000 tok  │         ~120 tok
-```
-
-## Cognitive Science Foundations
-
-- **Spreading Activation** — Collins & Loftus (1975): the dominant model of human semantic memory retrieval
-- **Hebbian Learning** — "neurons that fire together wire together" (edge strengthening)
-- **Encoding Specificity** — Tulving & Thomson (1973): retrieval success depends on encoding context match
-- **Complementary Learning Systems** — McClelland et al. (1995): two-tier memory consolidation
-- **Miller's Chunking** — compressing memories into minimal, fixed-width units
-- **Recursive Language Models** — (arXiv 2512.24601): probe at cheapest level first, escalate when needed
+The LLM reads codebook sequences natively. No decode step. The brain decodes itself.
 
 ## Quick Start
 
@@ -116,25 +123,25 @@ python demo.py
 
 ```
 memory-architecture-cognitive/
-├── codebook.py        # Finite alphabet: ~200 codes across 5 enums
-├── entities.py        # Entity instance registry with alias normalization
-├── genome.py          # Layer 1: DNA encoder + CodebookStrand persistence
-├── graph.py           # Layer 2: Association graph + ego nodes + recency
-├── expression.py      # Layer 3: Spreading activation + DNA/RNA/Protein decode
-├── memory.py          # Unified MemorySystem interface
+├── codebook.py        # DNA alphabet: ~96 codes, CodebookStrand dataclass
+├── entities.py        # Entity normalization with alias registry
+├── genome.py          # Storage pipeline: Protein → RNA → DNA
+├── graph.py           # Association graph + ego nodes + recency priming
+├── expression.py      # Brain-like retrieval: activate → reason over DNA
+├── memory.py          # Unified MemorySystem (storage + retrieval)
 ├── demo.py            # Proof-of-concept demo
 ├── requirements.txt
 └── README.md
 ```
 
-## References
+## Cognitive Science Foundations
 
-- Collins, A.M. & Loftus, E.F. (1975). A spreading-activation theory of semantic processing.
-- McClelland, J.L., McNaughton, B.L., & O'Reilly, R.C. (1995). Complementary Learning Systems.
-- Tulving, E. & Thomson, D.M. (1973). Encoding specificity and retrieval processes.
-- Xu et al. (2026). SYNAPSE: Spreading activation for LLM agent memory. arXiv 2501.01872.
-- Jiang et al. (2026). MAGMA: Multi-graph agent memory. arXiv 2601.03236.
-- Recursive Language Models. arXiv 2512.24601.
+- **Spreading Activation** — Collins & Loftus (1975): human semantic memory retrieval
+- **Hebbian Learning** — "neurons that fire together wire together"
+- **Encoding Specificity** — Tulving & Thomson (1973): retrieval depends on encoding match
+- **Complementary Learning Systems** — McClelland et al. (1995): two-tier consolidation
+- **Miller's Chunking** — compressing to fixed-width minimal units
+- **Recursive Language Models** — arXiv 2512.24601: probe cheapest level first
 
 ## License
 
