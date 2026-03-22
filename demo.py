@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Proof-of-Concept Demo — Cognitive Memory Architecture v3
+Proof-of-Concept Demo -- Cognitive Memory Architecture v3
 
 Two biological systems combined:
-  MOLECULAR BIOLOGY (Storage): Protein → RNA → DNA compression
-  NEUROSCIENCE (Retrieval):    Spreading activation → brain reads DNA directly
+  MOLECULAR BIOLOGY (Storage): Protein -> RNA -> DNA compression
+  NEUROSCIENCE (Retrieval):    Spreading activation -> brain reads DNA directly
 
-The brain decodes itself — the LLM reads codebook sequences natively,
+The brain decodes itself -- the LLM reads codebook sequences natively,
 just like neurons read activation patterns without translation.
 
 Run: python demo.py
@@ -16,6 +16,10 @@ Requires: ANTHROPIC_API_KEY environment variable
 import os
 import sys
 import time
+
+# Force UTF-8 output on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Clean up any previous demo data
 for f in ["genome.json", "graph.json", "entities.json"]:
