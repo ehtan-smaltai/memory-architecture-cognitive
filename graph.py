@@ -39,6 +39,7 @@ class AssociationGraph:
     INITIAL_SEMANTIC_WEIGHT = 0.5
     HEBBIAN_INCREMENT = 0.15
     EGO_EDGE_WEIGHT = 0.9
+    MAX_EDGES_PER_NODE = 50  # prevent edge explosion for popular entities
 
     # Recency priming
     RECENCY_BONUS = 0.3
@@ -51,6 +52,8 @@ class AssociationGraph:
         self.path = path
         self.graph = nx.DiGraph()
         self._recency_buffer: dict[str, float] = {}  # strand_id → warmth
+        # Index: (domain, relation) → set of strand_ids for O(1) semantic lookups
+        self._domain_relation_index: dict[tuple[int, int], set[str]] = {}
         self._load()
 
     # ── Persistence ──────────────────────────────────────────────────────
@@ -75,6 +78,20 @@ class AssociationGraph:
             # Restore recency buffer if present
             for entry in data.get("recency_buffer", []):
                 self._recency_buffer[entry["id"]] = entry["warmth"]
+
+    def rebuild_domain_relation_index(self, genome_getter):
+        """Rebuild the domain+relation index from the genome (call after load)."""
+        self._domain_relation_index.clear()
+        for nid in self.graph.nodes:
+            if str(nid).startswith(self.EGO_NODE_PREFIX):
+                continue
+            strand = genome_getter(nid)
+            if strand is None:
+                continue
+            key = (strand.domain, strand.relation)
+            if key not in self._domain_relation_index:
+                self._domain_relation_index[key] = set()
+            self._domain_relation_index[key].add(nid)
 
     def save(self):
         nodes = []
@@ -178,22 +195,22 @@ class AssociationGraph:
                     self._add_edge(sid, other_sid, weight, "entity_shared")
                     self._add_edge(other_sid, sid, weight, "entity_shared")
 
-        # Semantic edges — same domain code
-        if genome_getter:
-            for nid in list(self.graph.nodes):
-                if nid == sid or nid.startswith(self.EGO_NODE_PREFIX):
-                    continue
-                other = genome_getter(nid)
-                if other is None:
-                    continue
-                if strand.domain == other.domain and strand.relation == other.relation:
-                    self._add_edge(sid, nid, self.INITIAL_SEMANTIC_WEIGHT, "semantic")
-                    self._add_edge(nid, sid, self.INITIAL_SEMANTIC_WEIGHT, "semantic")
+        # Semantic edges — same domain + relation code (O(1) via index)
+        key = (strand.domain, strand.relation)
+        for nid in self._domain_relation_index.get(key, set()):
+            if nid != sid and self.graph.has_node(nid):
+                self._add_edge(sid, nid, self.INITIAL_SEMANTIC_WEIGHT, "semantic")
+                self._add_edge(nid, sid, self.INITIAL_SEMANTIC_WEIGHT, "semantic")
+
+        # Update the index with this strand
+        if key not in self._domain_relation_index:
+            self._domain_relation_index[key] = set()
+        self._domain_relation_index[key].add(sid)
 
         self.save()
 
     def _add_edge(self, src: str, tgt: str, weight: float, edge_type: str):
-        """Add or strengthen an edge."""
+        """Add or strengthen an edge. Prunes weakest edges if cap exceeded."""
         if self.graph.has_edge(src, tgt):
             existing = self.graph[src][tgt]
             if weight > existing["weight"]:
@@ -206,6 +223,17 @@ class AssociationGraph:
                 edge_type=edge_type,
                 created=int(time.time()),
             )
+            # Prune weakest edges if node exceeds cap
+            out_degree = self.graph.out_degree(src)
+            if out_degree > self.MAX_EDGES_PER_NODE:
+                edges = [
+                    (s, t, d) for s, t, d in self.graph.edges(src, data=True)
+                    if d["edge_type"] != "ego"  # never prune ego edges
+                ]
+                edges.sort(key=lambda e: e[2]["weight"])
+                # Remove the weakest edges to get back to cap
+                for s, t, d in edges[: out_degree - self.MAX_EDGES_PER_NODE]:
+                    self.graph.remove_edge(s, t)
 
     # ── Hebbian learning ─────────────────────────────────────────────────
 

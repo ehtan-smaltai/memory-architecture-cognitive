@@ -16,11 +16,15 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import os
+import re
 import time
 from typing import Optional
 
 import anthropic
+
+logger = logging.getLogger(__name__)
 
 from codebook import (
     Codebook,
@@ -95,6 +99,50 @@ class DNAEncoder:
         self.entity_registry = entity_registry
         self._system_prompt = build_extraction_prompt(codebook)
 
+    @staticmethod
+    def _parse_llm_json(text: str) -> dict:
+        """Parse JSON from LLM output, stripping markdown fences and fixing common issues."""
+        text = text.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1]
+            text = text.rsplit("```", 1)[0].strip()
+        # Try to extract JSON object if surrounded by extra text
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        if match:
+            text = match.group(0)
+        return json.loads(text)
+
+    def _extract_with_retry(self, raw_text: str, max_retries: int = 2) -> Optional[dict]:
+        """Call LLM to extract structured fields, with retry on parse failure."""
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=256,
+                    system=self._system_prompt,
+                    messages=[{"role": "user", "content": raw_text}],
+                )
+                text = response.content[0].text.strip()
+                extracted = self._parse_llm_json(text)
+
+                # Validate required keys
+                if "entities" not in extracted or not isinstance(extracted["entities"], list):
+                    raise ValueError("Missing or invalid 'entities' field")
+                if "relation" not in extracted:
+                    raise ValueError("Missing 'relation' field")
+
+                return extracted
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                logger.warning(f"LLM extraction attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries:
+                    return None
+            except anthropic.APIError as e:
+                logger.error(f"API error during extraction: {e}")
+                if attempt == max_retries:
+                    return None
+        return None
+
     def encode(self, raw_text: str, timestamp: Optional[int] = None) -> CodebookStrand:
         """
         Encode raw text into a CodebookStrand.
@@ -109,19 +157,21 @@ class DNAEncoder:
 
         raw_hash = hashlib.sha256(raw_text.encode()).hexdigest()
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=256,
-            system=self._system_prompt,
-            messages=[{"role": "user", "content": raw_text}],
-        )
+        extracted = self._extract_with_retry(raw_text, max_retries=2)
 
-        text = response.content[0].text.strip()
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0].strip()
-        extracted = json.loads(text)
+        if extracted is None:
+            # Fallback: return a minimal strand with UNKNOWN/OTHER codes
+            logger.warning("LLM extraction failed for input, using fallback encoding")
+            extracted = {
+                "entities": [{"type": "UNKNOWN", "name": "unknown"}],
+                "relation": "OTHER",
+                "modifier": "NEUTRAL",
+                "temporal": "PRESENT",
+                "domain": "GENERAL",
+                "sentiment": 0,
+                "confidence": 1,
+                "trace": raw_text[:80],
+            }
 
         # Create a temporary strand_id for entity resolution
         temp_strand = make_codebook_strand(
@@ -186,7 +236,17 @@ class Genome:
     def __init__(self, path: str = "genome.json"):
         self.path = path
         self._strands: dict[str, CodebookStrand] = {}
+        self._batch_mode: bool = False
         self._load()
+
+    def begin_batch(self):
+        """Suppress auto-save until end_batch() is called."""
+        self._batch_mode = True
+
+    def end_batch(self):
+        """End batch mode and persist."""
+        self._batch_mode = False
+        self.save()
 
     def _load(self):
         if os.path.exists(self.path):
@@ -204,7 +264,8 @@ class Genome:
     def add(self, strand: CodebookStrand) -> str:
         """Add a strand to the genome. Returns strand_id."""
         self._strands[strand.strand_id] = strand
-        self.save()
+        if not self._batch_mode:
+            self.save()
         return strand.strand_id
 
     def get(self, strand_id: str) -> Optional[CodebookStrand]:
@@ -236,7 +297,8 @@ class Genome:
         """Remove a strand from the genome (forgetting)."""
         if strand_id in self._strands:
             del self._strands[strand_id]
-            self.save()
+            if not self._batch_mode:
+                self.save()
 
     def increment_activation(self, strand_id: str):
         """Track that this strand was activated during a query."""
@@ -249,4 +311,5 @@ class Genome:
         old = self._strands.get(old_id)
         if old:
             old.superseded_by = new_id
-            self.save()
+            if not self._batch_mode:
+                self.save()

@@ -83,6 +83,8 @@ class MemorySystem:
         )
         self._recent_ids: list[str] = list(self.genome.all_ids())
         self.graph.ensure_ego_node("agent")
+        # Rebuild semantic index from persisted genome
+        self.graph.rebuild_domain_relation_index(self.genome.get)
 
     # ── Storage Pipeline (Molecular Biology) ─────────────────────────────
 
@@ -99,33 +101,42 @@ class MemorySystem:
         if self.genome.has_hash(raw_hash):
             return None
 
-        # RNA transcription -> DNA compression (1 API call)
-        strand = self.encoder.encode(raw_text, timestamp=timestamp)
+        # Enable batch mode to avoid redundant disk writes during store
+        self.genome.begin_batch()
+        self.entity_registry.begin_batch()
 
-        # Check for strand versioning — does this supersede an existing strand?
-        self._check_supersede(strand)
+        try:
+            # RNA transcription -> DNA compression (1 API call)
+            strand = self.encoder.encode(raw_text, timestamp=timestamp)
 
-        # Store DNA in genome
-        self.genome.add(strand)
+            # Check for strand versioning — does this supersede an existing strand?
+            self._check_supersede(strand)
 
-        # Build neural connections
-        self.graph.add_strand(
-            strand,
-            recent_ids=self._recent_ids,
-            entity_registry=self.entity_registry,
-            genome_getter=self.genome.get,
-        )
+            # Store DNA in genome
+            self.genome.add(strand)
 
-        # Bidirectional ego linking
-        should_ego_link = (
-            strand.modifier in self.EGO_MODIFIERS
-            or strand.relation in self.AGENT_ACTION_RELATIONS
-        )
-        if should_ego_link:
-            self.graph.link_to_ego(strand.strand_id, "agent")
+            # Build neural connections
+            self.graph.add_strand(
+                strand,
+                recent_ids=self._recent_ids,
+                entity_registry=self.entity_registry,
+                genome_getter=self.genome.get,
+            )
 
-        self._recent_ids.append(strand.strand_id)
-        return strand
+            # Bidirectional ego linking
+            should_ego_link = (
+                strand.modifier in self.EGO_MODIFIERS
+                or strand.relation in self.AGENT_ACTION_RELATIONS
+            )
+            if should_ego_link:
+                self.graph.link_to_ego(strand.strand_id, "agent")
+
+            self._recent_ids.append(strand.strand_id)
+            return strand
+        finally:
+            # Single save at end of store operation
+            self.genome.end_batch()
+            self.entity_registry.end_batch()
 
     def _check_supersede(self, new_strand: CodebookStrand):
         """

@@ -24,7 +24,7 @@ Total: 2 API calls per query. Fixed context cost. Unlimited genome.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import anthropic
 
@@ -255,14 +255,14 @@ class ExpressionEngine:
         - Superseded strand filtering
         """
         activation: dict[str, float] = {}
-        queue: list[tuple[str, float]] = []
+        queue: deque[tuple[str, float]] = deque()
 
         for sid, score in seeds:
             activation[sid] = score
             queue.append((sid, score))
 
         while queue:
-            current_id, current_activation = queue.pop(0)
+            current_id, current_activation = queue.popleft()
 
             for neighbor_id, raw_edge_weight, edge_type in self.graph.neighbors(current_id):
                 # Skip ego nodes in results

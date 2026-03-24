@@ -64,7 +64,17 @@ class EntityRegistry:
         self.path = path
         self._entities: dict[str, EntityInstance] = {}
         self._alias_index: dict[str, str] = {}  # normalized_alias → instance_id
+        self._batch_mode: bool = False
         self._load()
+
+    def begin_batch(self):
+        """Suppress auto-save until end_batch() is called."""
+        self._batch_mode = True
+
+    def end_batch(self):
+        """End batch mode and persist."""
+        self._batch_mode = False
+        self.save()
 
     def _load(self):
         if os.path.exists(self.path):
@@ -107,25 +117,32 @@ class EntityRegistry:
             if strand_id not in inst.strand_ids:
                 inst.strand_ids.append(strand_id)
             inst.last_seen = max(inst.last_seen, timestamp)
-            self.save()
+            if not self._batch_mode:
+                self.save()
             return inst_id
 
         # 2. Fuzzy match: substring containment + same entity type
+        #    Guards: both strings must be >= 3 chars, and the shorter must be
+        #    at least 60% of the longer to prevent "AI" matching "HAIR" etc.
         for inst_id, inst in self._entities.items():
             if inst.entity_type != entity_type:
                 continue
             for alias in inst.aliases:
-                # Check if one contains the other (handles "Sarah" vs "Sarah Chen")
-                if (len(normalized) >= 3 and normalized in alias) or (
-                    len(alias) >= 3 and alias in normalized
-                ):
+                shorter, longer = sorted([normalized, alias], key=len)
+                if len(shorter) < 3 or len(longer) < 3:
+                    continue
+                # Length ratio guard — prevents short substrings matching long names
+                if len(shorter) / len(longer) < 0.6:
+                    continue
+                if shorter in longer:
                     # Match found — register new alias
                     inst.aliases.add(normalized)
                     self._alias_index[normalized] = inst_id
                     if strand_id not in inst.strand_ids:
                         inst.strand_ids.append(strand_id)
                     inst.last_seen = max(inst.last_seen, timestamp)
-                    self.save()
+                    if not self._batch_mode:
+                        self.save()
                     return inst_id
 
         # 3. No match — create new instance
@@ -144,7 +161,8 @@ class EntityRegistry:
             last_seen=timestamp,
         )
         self._alias_index[normalized] = inst_id
-        self.save()
+        if not self._batch_mode:
+            self.save()
         return inst_id
 
     def get(self, instance_id: str) -> EntityInstance | None:
