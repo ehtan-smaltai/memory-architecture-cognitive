@@ -32,6 +32,7 @@ from .genome import DNAEncoder, Genome
 from .graph import AssociationGraph
 from .expression import ExpressionEngine, codebook_similarity, estimate_strand_tokens
 from .memory import MemorySystem
+from .protocols import Encoder, StrandStore
 
 __all__ = [
     # Core
@@ -58,4 +59,7 @@ __all__ = [
     "ExpressionEngine",
     "codebook_similarity",
     "estimate_strand_tokens",
+    # Protocols
+    "Encoder",
+    "StrandStore",
 ]

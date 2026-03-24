@@ -28,7 +28,7 @@ import networkx as nx
 from .codebook import CodebookStrand
 from .config import Config
 from .entities import EntityRegistry
-from ._persistence import atomic_write_json
+from ._persistence import atomic_write_json, save_versioned, load_versioned
 
 
 class AssociationGraph:
@@ -62,25 +62,23 @@ class AssociationGraph:
     # ── Persistence ──────────────────────────────────────────────────────
 
     def _load(self):
-        if os.path.exists(self.path):
-            with open(self.path, "r") as f:
-                data = json.load(f)
-            for node in data.get("nodes", []):
-                if isinstance(node, dict):
-                    self.graph.add_node(node["id"], node_type=node.get("node_type", "strand"))
-                else:
-                    self.graph.add_node(node, node_type="strand")
-            for edge in data.get("edges", []):
-                self.graph.add_edge(
-                    edge["source"],
-                    edge["target"],
-                    weight=edge["weight"],
-                    edge_type=edge["edge_type"],
-                    created=edge.get("created", 0),
-                )
-            # Restore recency buffer if present
-            for entry in data.get("recency_buffer", []):
-                self._recency_buffer[entry["id"]] = entry["warmth"]
+        _version, nodes_list, extra = load_versioned(self.path, "nodes")
+        for node in nodes_list:
+            if isinstance(node, dict):
+                self.graph.add_node(node["id"], node_type=node.get("node_type", "strand"))
+            else:
+                self.graph.add_node(node, node_type="strand")
+        for edge in extra.get("edges", []):
+            self.graph.add_edge(
+                edge["source"],
+                edge["target"],
+                weight=edge["weight"],
+                edge_type=edge["edge_type"],
+                created=edge.get("created", 0),
+            )
+        # Restore recency buffer if present
+        for entry in extra.get("recency_buffer", []):
+            self._recency_buffer[entry["id"]] = entry["warmth"]
 
     def rebuild_domain_relation_index(self, genome_getter):
         """Rebuild the domain+relation index from the genome (call after load)."""
@@ -118,8 +116,8 @@ class AssociationGraph:
             for sid, w in self._recency_buffer.items()
         ]
 
-        data = {"nodes": nodes, "edges": edges, "recency_buffer": recency}
-        atomic_write_json(self.path, data)
+        save_versioned(self.path, "nodes", nodes,
+                       edges=edges, recency_buffer=recency)
 
     # ── Ego nodes ────────────────────────────────────────────────────────
 

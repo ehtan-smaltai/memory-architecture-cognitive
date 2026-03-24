@@ -35,7 +35,7 @@ from .codebook import (
     Domain,
 )
 from .entities import EntityRegistry
-from ._persistence import atomic_write_json
+from ._persistence import atomic_write_json, save_versioned, load_versioned
 
 logger = logging.getLogger(__name__)
 
@@ -254,16 +254,14 @@ class Genome:
         self.save()
 
     def _load(self):
-        if os.path.exists(self.path):
-            with open(self.path, "r") as f:
-                data = json.load(f)
-            for d in data:
-                strand = CodebookStrand.from_dict(d)
-                self._strands[strand.strand_id] = strand
+        _version, items, _extra = load_versioned(self.path, "strands")
+        for d in items:
+            strand = CodebookStrand.from_dict(d)
+            self._strands[strand.strand_id] = strand
 
     def save(self):
         data = [s.to_dict() for s in self._strands.values()]
-        atomic_write_json(self.path, data)
+        save_versioned(self.path, "strands", data)
 
     def add(self, strand: CodebookStrand) -> str:
         """Add a strand to the genome. Returns strand_id."""

@@ -15,7 +15,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-from ._persistence import atomic_write_json
+from ._persistence import atomic_write_json, save_versioned, load_versioned
 
 
 @dataclass
@@ -79,18 +79,16 @@ class EntityRegistry:
         self.save()
 
     def _load(self):
-        if os.path.exists(self.path):
-            with open(self.path, "r") as f:
-                data = json.load(f)
-            for d in data:
-                inst = EntityInstance.from_dict(d)
-                self._entities[inst.instance_id] = inst
-                for alias in inst.aliases:
-                    self._alias_index[alias] = inst.instance_id
+        _version, items, _extra = load_versioned(self.path, "entities")
+        for d in items:
+            inst = EntityInstance.from_dict(d)
+            self._entities[inst.instance_id] = inst
+            for alias in inst.aliases:
+                self._alias_index[alias] = inst.instance_id
 
     def save(self):
         data = [inst.to_dict() for inst in self._entities.values()]
-        atomic_write_json(self.path, data)
+        save_versioned(self.path, "entities", data)
 
     def resolve(
         self,
