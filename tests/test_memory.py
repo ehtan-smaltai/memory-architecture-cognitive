@@ -158,3 +158,50 @@ class TestMemoryConsolidation:
 
         system._check_supersede(s2)
         assert self.genome.get("s1").superseded_by == "s2"
+
+    def test_supersede_skips_factual_relations(self):
+        """Factual relations like SENT should NOT be superseded (R5 mitigation)."""
+        from memory import MemorySystem
+
+        # SENT is a historical event, not a belief state
+        s1 = _make_strand("s1", ["alice"], relation=RelationType.SENT.value,
+                          sentiment=0, raw_hash="h1")
+        s2 = _make_strand("s2", ["alice"], relation=RelationType.SENT.value,
+                          sentiment=1, raw_hash="h2")
+
+        self.genome.add(s1)
+        self.graph.add_strand(s1, recent_ids=[], genome_getter=self.genome.get)
+
+        codebook = self._build_system_with_strands([])
+
+        system = object.__new__(MemorySystem)
+        system.codebook = codebook
+        system.genome = self.genome
+        system.graph = self.graph
+        system.entity_registry = self.registry
+
+        system._check_supersede(s2)
+        assert self.genome.get("s1").superseded_by is None  # NOT superseded
+
+    def test_supersede_works_for_belief_states(self):
+        """Belief-state relations like HESITANT should be superseded (R5 mitigation)."""
+        from memory import MemorySystem
+
+        s1 = _make_strand("s1", ["alice"], relation=RelationType.HESITANT.value,
+                          sentiment=-1, raw_hash="h1")
+        s2 = _make_strand("s2", ["alice"], relation=RelationType.HESITANT.value,
+                          sentiment=1, raw_hash="h2")
+
+        self.genome.add(s1)
+        self.graph.add_strand(s1, recent_ids=[], genome_getter=self.genome.get)
+
+        codebook = self._build_system_with_strands([])
+
+        system = object.__new__(MemorySystem)
+        system.codebook = codebook
+        system.genome = self.genome
+        system.graph = self.graph
+        system.entity_registry = self.registry
+
+        system._check_supersede(s2)
+        assert self.genome.get("s1").superseded_by == "s2"  # IS superseded

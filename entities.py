@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass, field
 
 
@@ -49,6 +50,22 @@ class EntityInstance:
             first_seen=d["first_seen"],
             last_seen=d["last_seen"],
         )
+
+
+def _atomic_write_json(path: str, data) -> None:
+    """Write JSON atomically: write to temp file, then os.replace."""
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class EntityRegistry:
@@ -88,8 +105,7 @@ class EntityRegistry:
 
     def save(self):
         data = [inst.to_dict() for inst in self._entities.values()]
-        with open(self.path, "w") as f:
-            json.dump(data, f, indent=2)
+        _atomic_write_json(self.path, data)
 
     def resolve(
         self,
@@ -110,16 +126,18 @@ class EntityRegistry:
         """
         normalized = raw_name.lower().strip()
 
-        # 1. Exact alias match
+        # 1. Exact alias match (must also match entity type)
         if normalized in self._alias_index:
             inst_id = self._alias_index[normalized]
             inst = self._entities[inst_id]
-            if strand_id not in inst.strand_ids:
-                inst.strand_ids.append(strand_id)
-            inst.last_seen = max(inst.last_seen, timestamp)
-            if not self._batch_mode:
-                self.save()
-            return inst_id
+            if inst.entity_type == entity_type:
+                if strand_id not in inst.strand_ids:
+                    inst.strand_ids.append(strand_id)
+                inst.last_seen = max(inst.last_seen, timestamp)
+                if not self._batch_mode:
+                    self.save()
+                return inst_id
+            # Type mismatch on exact alias — fall through to fuzzy/create
 
         # 2. Fuzzy match: substring containment + same entity type
         #    Guards: both strings must be >= 3 chars, and the shorter must be

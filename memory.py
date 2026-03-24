@@ -58,6 +58,24 @@ class MemorySystem:
         Modifier.HIGH_VALUE.value,
     }
 
+    # Relations representing mutable belief states — newer replaces older.
+    # Factual/event relations (SENT, SCHEDULED, MENTIONED, etc.) are NOT
+    # supersedable because they represent historical events, not current state.
+    SUPERSEDABLE_RELATIONS = {
+        RelationType.HESITANT.value,
+        RelationType.WENT_QUIET.value,
+        RelationType.RE_ENGAGED.value,
+        RelationType.TRIAL_POSITIVE.value,
+        RelationType.TRIAL_NEGATIVE.value,
+        RelationType.TRIAL_STARTED.value,
+        RelationType.PRICE_CONCERN.value,
+        RelationType.EXPANDING.value,
+        RelationType.BREAKING_DOWN.value,
+        RelationType.COMPETING.value,
+        RelationType.CANCELLED.value,
+        RelationType.RENEWED.value,
+    }
+
     def __init__(
         self,
         genome_path: str = "genome.json",
@@ -140,11 +158,19 @@ class MemorySystem:
 
     def _check_supersede(self, new_strand: CodebookStrand):
         """
-        Strand versioning: if a new strand has the same primary entity +
-        same relation as an existing strand but different sentiment/modifier,
-        the old one is superseded. Like how the brain updates beliefs.
+        Strand versioning: if a new strand has the same primary entity and a
+        supersedable relation as an existing strand, and the sentiment differs,
+        the old one is superseded.
+
+        Only belief-state relations (HESITANT, WENT_QUIET, TRIAL_POSITIVE, etc.)
+        are supersedable. Factual/event relations (SENT, SCHEDULED, MENTIONED)
+        are historical records and are never superseded.
         """
         if not new_strand.entity_slots:
+            return
+
+        # Only supersede belief-state relations
+        if new_strand.relation not in self.SUPERSEDABLE_RELATIONS:
             return
 
         new_primary = new_strand.entity_slots[0][1]
@@ -156,14 +182,14 @@ class MemorySystem:
             ex_primary = existing.entity_slots[0][1]
             ex_relation = existing.relation
 
-            # Same entity + same relation = potential supersede
-            if ex_primary == new_primary and ex_relation == new_relation:
-                # Different sentiment = updated belief
-                if existing.sentiment != new_strand.sentiment:
-                    self.genome.supersede(existing.strand_id, new_strand.strand_id)
-                    # Weaken old strand's edges
-                    for _, _, d in list(self.graph.graph.edges(existing.strand_id, data=True)):
-                        d["weight"] *= 0.5
+            # Same entity + same relation + different sentiment = updated belief
+            if (ex_primary == new_primary
+                    and ex_relation == new_relation
+                    and existing.sentiment != new_strand.sentiment):
+                self.genome.supersede(existing.strand_id, new_strand.strand_id)
+                # Weaken old strand's edges
+                for _, _, d in list(self.graph.graph.edges(existing.strand_id, data=True)):
+                    d["weight"] *= 0.5
 
     # ── Retrieval Pipeline (Neuroscience) ────────────────────────────────
 

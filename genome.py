@@ -19,12 +19,31 @@ import hashlib
 import logging
 import os
 import re
+import tempfile
 import time
 from typing import Optional
 
 import anthropic
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_write_json(path: str, data) -> None:
+    """Write JSON atomically: write to temp file, then os.replace."""
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Clean up temp file on failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
 
 from codebook import (
     Codebook,
@@ -258,8 +277,7 @@ class Genome:
 
     def save(self):
         data = [s.to_dict() for s in self._strands.values()]
-        with open(self.path, "w") as f:
-            json.dump(data, f, indent=2)
+        _atomic_write_json(self.path, data)
 
     def add(self, strand: CodebookStrand) -> str:
         """Add a strand to the genome. Returns strand_id."""

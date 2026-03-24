@@ -141,6 +141,7 @@ class ExpressionEngine:
     SPREAD_DECAY = 0.7
     TOKEN_BUDGET = 500  # increased to fit traces
     SEED_COUNT = 3
+    MAX_DEPTH = 4  # maximum hops from seed nodes
 
     def __init__(
         self,
@@ -181,9 +182,41 @@ class ExpressionEngine:
     # ── Step 1: SEED (with code similarity matrix) ───────────────────────
 
     def _find_seeds(self, query_strand: CodebookStrand) -> list[tuple[str, float]]:
-        """Find seeds using semantic code similarity, not just entity overlap."""
+        """
+        Find seeds using semantic code similarity.
+
+        Uses inverted indexes (entity → strands, domain+relation → strands) to
+        narrow candidates before computing similarity. Falls back to full scan
+        only if indexes yield no candidates.
+        """
+        # Build candidate set from indexes
+        candidates: set[str] = set()
+
+        # Candidates sharing any entity with the query
+        for inst_id in query_strand.get_entity_instance_ids():
+            for sid in self.entity_registry.get_strands_for_entity(inst_id):
+                candidates.add(sid)
+
+        # Candidates sharing domain+relation (via graph index)
+        dr_key = (query_strand.domain, query_strand.relation)
+        for sid in self.graph._domain_relation_index.get(dr_key, set()):
+            candidates.add(sid)
+
+        # Also check relation cluster neighbors for broader semantic match
+        for cluster_id, codes in self.codebook._RELATION_CLUSTERS.items():
+            if query_strand.relation in codes:
+                for code in codes:
+                    cluster_key = (query_strand.domain, code)
+                    for sid in self.graph._domain_relation_index.get(cluster_key, set()):
+                        candidates.add(sid)
+                break
+
+        # Fallback: if indexes yield nothing, scan all active strands
+        if not candidates:
+            candidates = set(self.genome.active_ids())
+
         scores = []
-        for sid in self.genome.active_ids():
+        for sid in candidates:
             target = self.genome.get(sid)
             if target is None or target.superseded_by is not None:
                 continue
@@ -255,14 +288,21 @@ class ExpressionEngine:
         - Superseded strand filtering
         """
         activation: dict[str, float] = {}
-        queue: deque[tuple[str, float]] = deque()
+        depth: dict[str, int] = {}
+        visited: set[str] = set()
+        queue: deque[tuple[str, float, int]] = deque()  # (id, activation, depth)
 
         for sid, score in seeds:
             activation[sid] = score
-            queue.append((sid, score))
+            depth[sid] = 0
+            visited.add(sid)
+            queue.append((sid, score, 0))
 
         while queue:
-            current_id, current_activation = queue.popleft()
+            current_id, current_activation, current_depth = queue.popleft()
+
+            if current_depth >= self.MAX_DEPTH:
+                continue
 
             for neighbor_id, raw_edge_weight, edge_type in self.graph.neighbors(current_id):
                 # Skip ego nodes in results
@@ -293,9 +333,14 @@ class ExpressionEngine:
                 if spread < threshold:
                     continue
 
+                # Update activation score (always take max)
                 if neighbor_id not in activation or spread > activation[neighbor_id]:
                     activation[neighbor_id] = spread
-                    queue.append((neighbor_id, spread))
+
+                # Only enqueue if not already visited (prevents re-traversal)
+                if neighbor_id not in visited:
+                    visited.add(neighbor_id)
+                    queue.append((neighbor_id, spread, current_depth + 1))
 
         # Add recency bonuses
         for sid in list(activation.keys()):

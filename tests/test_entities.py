@@ -59,14 +59,13 @@ class TestEntityRegistry:
         # 4/7 ≈ 0.57 which is < 0.6, so these should NOT match
         assert id1 != id2
 
-    def test_different_entity_type_no_match(self):
-        """Same name, different type should not match via fuzzy."""
+    def test_different_entity_type_creates_separate_instance(self):
+        """Same name, different type should create separate entities (R2 mitigation)."""
         id1 = self.registry.resolve("Delta", EntityType.ORG.value, "s1", 1000)
         id2 = self.registry.resolve("Delta", EntityType.PRODUCT.value, "s2", 2000)
-        # Exact alias match is type-agnostic (uses _alias_index which has no type)
-        # Actually the exact alias match doesn't check type — this is a known behavior
-        # The alias "delta" maps to the first instance created
-        assert id1 == id2  # exact alias match wins regardless of type
+        # Exact alias match now checks entity_type — type mismatch falls through
+        assert id1 != id2
+        assert self.registry.count() == 2
 
     def test_persistence_roundtrip(self):
         self.registry.resolve("Alice", EntityType.PERSON.value, "s1", 1000)
@@ -96,6 +95,12 @@ class TestEntityRegistry:
         # Now it should be saved
         loaded = EntityRegistry(path=self.tmpfile.name)
         assert loaded.count() == 2
+
+    def test_same_type_exact_alias_still_matches(self):
+        """Same name, same type should still match via exact alias."""
+        id1 = self.registry.resolve("Delta", EntityType.ORG.value, "s1", 1000)
+        id2 = self.registry.resolve("Delta", EntityType.ORG.value, "s2", 2000)
+        assert id1 == id2
 
     def test_id_collision_handling(self):
         """Two different entities that normalize to the same ID should get unique IDs."""

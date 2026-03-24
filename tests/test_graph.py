@@ -195,6 +195,45 @@ class TestAssociationGraph:
         out_edges = list(self.graph.graph.edges("center"))
         assert len(out_edges) <= self.graph.MAX_EDGES_PER_NODE
 
+    def test_decay_floor(self):
+        """Edge weights should never decay below DECAY_FLOOR (R3 mitigation)."""
+        s1 = _make_strand("s1")
+        s2 = _make_strand("s2")
+        self._strands.update({"s1": s1, "s2": s2})
+        self.graph.add_strand(s1, recent_ids=[], genome_getter=self._genome_getter)
+        self.graph.add_strand(s2, recent_ids=["s1"], genome_getter=self._genome_getter)
+
+        # Apply decay many times — simulating 1000 queries
+        for _ in range(1000):
+            self.graph.apply_decay()
+
+        # Weights should be at the floor, not zero
+        for _, w, etype in self.graph.neighbors("s1"):
+            if etype != "ego":
+                assert w >= self.graph.DECAY_FLOOR
+
+    def test_ego_edges_exempt_from_decay(self):
+        """Ego edges should not decay (R3 mitigation)."""
+        self.graph.ensure_ego_node("agent")
+        s1 = _make_strand("s1")
+        self._strands["s1"] = s1
+        self.graph.add_strand(s1, recent_ids=[], genome_getter=self._genome_getter)
+        self.graph.link_to_ego("s1", "agent")
+
+        # Get initial ego edge weight
+        ego_neighbors = [(nid, w, et) for nid, w, et in self.graph.neighbors("ego:agent")
+                         if et == "ego"]
+        assert len(ego_neighbors) > 0
+        initial_weight = ego_neighbors[0][1]
+
+        # Apply decay 100 times
+        for _ in range(100):
+            self.graph.apply_decay()
+
+        ego_after = [(nid, w, et) for nid, w, et in self.graph.neighbors("ego:agent")
+                     if et == "ego"]
+        assert ego_after[0][1] == initial_weight  # unchanged
+
     def test_persistence(self):
         s1 = _make_strand("s1")
         self._strands["s1"] = s1

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 
 import networkx as nx
@@ -29,11 +30,28 @@ from codebook import CodebookStrand
 from entities import EntityRegistry
 
 
+def _atomic_write_json(path: str, data) -> None:
+    """Write JSON atomically: write to temp file, then os.replace."""
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 class AssociationGraph:
     """Weighted directed graph over memory strands + ego nodes."""
 
     # Edge weights
     DECAY_FACTOR = 0.99
+    DECAY_FLOOR = 0.01  # minimum edge weight — prevents decay from killing edges
     INITIAL_TEMPORAL_WEIGHT = 0.6
     INITIAL_ENTITY_WEIGHT = 0.8
     INITIAL_SEMANTIC_WEIGHT = 0.5
@@ -116,8 +134,7 @@ class AssociationGraph:
         ]
 
         data = {"nodes": nodes, "edges": edges, "recency_buffer": recency}
-        with open(self.path, "w") as f:
-            json.dump(data, f, indent=2)
+        _atomic_write_json(self.path, data)
 
     # ── Ego nodes ────────────────────────────────────────────────────────
 
@@ -253,9 +270,11 @@ class AssociationGraph:
     # ── Decay ────────────────────────────────────────────────────────────
 
     def apply_decay(self):
-        """Apply temporal decay to all edge weights."""
+        """Apply temporal decay to all edge weights. Ego edges are exempt. Floor prevents zeroing."""
         for u, v, d in self.graph.edges(data=True):
-            d["weight"] *= self.DECAY_FACTOR
+            if d["edge_type"] == "ego":
+                continue  # ego edges don't decay
+            d["weight"] = max(self.DECAY_FLOOR, d["weight"] * self.DECAY_FACTOR)
         self.save()
 
     # ── Recency priming ──────────────────────────────────────────────────
