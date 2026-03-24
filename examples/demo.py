@@ -14,7 +14,7 @@ Every mechanism mirrors real neuroscience:
   - Strand versioning (supersede outdated info)
   - Hebbian learning + recency priming
 
-Run: python demo.py
+Run: python examples/demo.py
 Requires: ANTHROPIC_API_KEY environment variable
 """
 
@@ -31,8 +31,7 @@ for f in ["genome.json", "graph.json", "entities.json"]:
     if os.path.exists(f):
         os.remove(f)
 
-from memory import MemorySystem
-from codebook import Codebook
+from cognitive_memory import MemorySystem, Codebook, Config
 
 
 # ─── Configuration ───────────────────────────────────────────────────────────

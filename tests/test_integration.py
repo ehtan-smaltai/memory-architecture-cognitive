@@ -17,18 +17,20 @@ import shutil
 
 import pytest
 
-from codebook import (
+from cognitive_memory import (
     Codebook,
+    Config,
     EntityType,
     RelationType,
     Modifier,
     TemporalMarker,
     Domain,
+    EntityRegistry,
+    DNAEncoder,
+    Genome,
+    AssociationGraph,
+    MemorySystem,
 )
-from entities import EntityRegistry
-from genome import DNAEncoder, Genome
-from graph import AssociationGraph
-from memory import MemorySystem
 
 
 pytestmark = pytest.mark.integration

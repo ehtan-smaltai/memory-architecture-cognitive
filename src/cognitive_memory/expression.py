@@ -28,17 +28,19 @@ from collections import defaultdict, deque
 
 import anthropic
 
-from codebook import (
+from .codebook import (
     Codebook,
     CodebookStrand,
+    EntityType,
     Modifier,
     Domain,
     TemporalMarker,
     RelationType,
 )
-from genome import Genome
-from graph import AssociationGraph
-from entities import EntityRegistry
+from .config import Config
+from .genome import Genome
+from .graph import AssociationGraph
+from .entities import EntityRegistry
 
 
 # ─── Brain reasoning prompt ──────────────────────────────────────────────────
@@ -49,19 +51,16 @@ def build_reasoning_prompt(codebook: Codebook) -> str:
     Like the brain's innate ability to interpret its own neural patterns.
     """
     entity_legend = ", ".join(
-        f"{e.name}={e.value}" for e in sorted(
-            __import__('codebook').EntityType, key=lambda x: x.value
-        ) if e.name != "UNKNOWN"
+        f"{e.name}={e.value}" for e in sorted(EntityType, key=lambda x: x.value)
+        if e.name != "UNKNOWN"
     )
     relation_legend = ", ".join(
-        f"{r.name}={r.value}" for r in sorted(
-            __import__('codebook').RelationType, key=lambda x: x.value
-        ) if r.name != "OTHER"
+        f"{r.name}={r.value}" for r in sorted(RelationType, key=lambda x: x.value)
+        if r.name != "OTHER"
     )
     modifier_legend = ", ".join(
-        f"{m.name}={m.value}" for m in sorted(
-            __import__('codebook').Modifier, key=lambda x: x.value
-        ) if m.name != "OTHER"
+        f"{m.name}={m.value}" for m in sorted(Modifier, key=lambda x: x.value)
+        if m.name != "OTHER"
     )
 
     return f"""You are an AI agent with a codebook-encoded memory system. You read compressed memory codes natively.
@@ -137,12 +136,6 @@ def estimate_strand_tokens(strand: CodebookStrand) -> int:
 class ExpressionEngine:
     """Brain-perfect retrieval: every mechanism mirrors real neuroscience."""
 
-    BASE_THRESHOLD = 0.15
-    SPREAD_DECAY = 0.7
-    TOKEN_BUDGET = 500  # increased to fit traces
-    SEED_COUNT = 3
-    MAX_DEPTH = 4  # maximum hops from seed nodes
-
     def __init__(
         self,
         genome: Genome,
@@ -150,6 +143,7 @@ class ExpressionEngine:
         codebook: Codebook,
         entity_registry: EntityRegistry,
         model: str = "claude-sonnet-4-20250514",
+        config: Config | None = None,
     ):
         self.genome = genome
         self.graph = graph
@@ -158,6 +152,13 @@ class ExpressionEngine:
         self.client = anthropic.Anthropic()
         self.model = model
         self._reasoning_prompt = build_reasoning_prompt(codebook)
+
+        cfg = config or Config()
+        self.BASE_THRESHOLD = cfg.base_threshold
+        self.SPREAD_DECAY = cfg.spread_decay
+        self.TOKEN_BUDGET = cfg.token_budget
+        self.SEED_COUNT = cfg.seed_count
+        self.MAX_DEPTH = cfg.max_spread_depth
 
     # ── Render DNA + trace ───────────────────────────────────────────────
 

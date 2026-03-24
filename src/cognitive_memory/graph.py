@@ -21,53 +21,38 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import time
 
 import networkx as nx
 
-from codebook import CodebookStrand
-from entities import EntityRegistry
-
-
-def _atomic_write_json(path: str, data) -> None:
-    """Write JSON atomically: write to temp file, then os.replace."""
-    dir_name = os.path.dirname(path) or "."
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_path, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+from .codebook import CodebookStrand
+from .config import Config
+from .entities import EntityRegistry
+from ._persistence import atomic_write_json
 
 
 class AssociationGraph:
     """Weighted directed graph over memory strands + ego nodes."""
 
-    # Edge weights
-    DECAY_FACTOR = 0.99
-    DECAY_FLOOR = 0.01  # minimum edge weight — prevents decay from killing edges
-    INITIAL_TEMPORAL_WEIGHT = 0.6
-    INITIAL_ENTITY_WEIGHT = 0.8
-    INITIAL_SEMANTIC_WEIGHT = 0.5
-    HEBBIAN_INCREMENT = 0.15
-    EGO_EDGE_WEIGHT = 0.9
-    MAX_EDGES_PER_NODE = 50  # prevent edge explosion for popular entities
-
-    # Recency priming
-    RECENCY_BONUS = 0.3
-    RECENCY_DECAY_RATE = 0.85
-
     # Ego node prefix
     EGO_NODE_PREFIX = "ego:"
 
-    def __init__(self, path: str = "graph.json"):
+    def __init__(self, path: str = "graph.json", config: Config | None = None):
         self.path = path
+        cfg = config or Config()
+
+        # Edge weights from config
+        self.DECAY_FACTOR = cfg.decay_factor
+        self.DECAY_FLOOR = cfg.decay_floor
+        self.INITIAL_TEMPORAL_WEIGHT = cfg.initial_temporal_weight
+        self.INITIAL_ENTITY_WEIGHT = cfg.initial_entity_weight
+        self.INITIAL_SEMANTIC_WEIGHT = cfg.initial_semantic_weight
+        self.HEBBIAN_INCREMENT = cfg.hebbian_increment
+        self.EGO_EDGE_WEIGHT = cfg.ego_edge_weight
+        self.MAX_EDGES_PER_NODE = cfg.max_edges_per_node
+        self.RECENCY_BONUS = cfg.recency_bonus
+        self.RECENCY_DECAY_RATE = cfg.recency_decay_rate
+
         self.graph = nx.DiGraph()
         self._recency_buffer: dict[str, float] = {}  # strand_id → warmth
         # Index: (domain, relation) → set of strand_ids for O(1) semantic lookups
@@ -134,7 +119,7 @@ class AssociationGraph:
         ]
 
         data = {"nodes": nodes, "edges": edges, "recency_buffer": recency}
-        _atomic_write_json(self.path, data)
+        atomic_write_json(self.path, data)
 
     # ── Ego nodes ────────────────────────────────────────────────────────
 

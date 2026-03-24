@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from dataclasses import dataclass, field
+
+from ._persistence import atomic_write_json
 
 
 @dataclass
@@ -50,22 +51,6 @@ class EntityInstance:
             first_seen=d["first_seen"],
             last_seen=d["last_seen"],
         )
-
-
-def _atomic_write_json(path: str, data) -> None:
-    """Write JSON atomically: write to temp file, then os.replace."""
-    dir_name = os.path.dirname(path) or "."
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_path, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
 
 
 class EntityRegistry:
@@ -105,7 +90,7 @@ class EntityRegistry:
 
     def save(self):
         data = [inst.to_dict() for inst in self._entities.values()]
-        _atomic_write_json(self.path, data)
+        atomic_write_json(self.path, data)
 
     def resolve(
         self,

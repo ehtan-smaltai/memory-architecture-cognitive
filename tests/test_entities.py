@@ -3,8 +3,7 @@
 import os
 import tempfile
 import pytest
-from entities import EntityRegistry, EntityInstance
-from codebook import EntityType
+from cognitive_memory import EntityRegistry, EntityInstance, EntityType
 
 
 class TestEntityRegistry:

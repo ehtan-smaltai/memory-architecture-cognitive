@@ -1,11 +1,11 @@
 """Tests for the expression engine — spreading activation, similarity, token estimation."""
 
 import pytest
-from codebook import (
+from cognitive_memory import (
     Codebook, CodebookStrand, EntityType, RelationType, Modifier,
     TemporalMarker, Domain, make_codebook_strand,
+    codebook_similarity, estimate_strand_tokens,
 )
-from expression import codebook_similarity, estimate_strand_tokens
 
 
 def _make_strand(entity_ids=None, relation=0, modifier=0, domain=0, temporal=0):

@@ -3,12 +3,10 @@
 import os
 import tempfile
 import pytest
-from codebook import (
+from cognitive_memory import (
     CodebookStrand, EntityType, RelationType, Modifier, TemporalMarker, Domain,
-    make_codebook_strand,
+    make_codebook_strand, EntityRegistry, AssociationGraph,
 )
-from entities import EntityRegistry
-from graph import AssociationGraph
 
 
 def _make_strand(strand_id, entity_ids=None, domain=0, relation=0, raw_hash=None):
@@ -176,7 +174,7 @@ class TestAssociationGraph:
         self.graph.prime_recency(["s1"])
         assert self.graph.get_recency_bonus("s1") > 0
         self.graph.decay_recency()
-        assert self.graph.get_recency_bonus("s1") < AssociationGraph.RECENCY_BONUS
+        assert self.graph.get_recency_bonus("s1") < self.graph.RECENCY_BONUS
 
     def test_edge_cap(self):
         """Adding many neighbors to one node should cap edges."""

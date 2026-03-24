@@ -3,14 +3,12 @@
 import os
 import tempfile
 import pytest
-from codebook import (
+from cognitive_memory import (
     CodebookStrand, EntityType, RelationType, Modifier,
     TemporalMarker, Domain, make_codebook_strand,
+    Genome, AssociationGraph, EntityRegistry, MemorySystem,
+    Codebook, Config,
 )
-from genome import Genome
-from graph import AssociationGraph
-from entities import EntityRegistry
-from memory import MemorySystem
 
 
 def _make_strand(strand_id, entity_ids=None, relation=0, modifier=0,
@@ -47,7 +45,6 @@ class TestMemoryConsolidation:
 
     def _build_system_with_strands(self, strands):
         """Helper to create a MemorySystem-like setup with pre-injected strands."""
-        from codebook import Codebook
         codebook = Codebook()
 
         for s in strands:
@@ -60,7 +57,6 @@ class TestMemoryConsolidation:
 
     def test_consolidation_merges_related_strands(self):
         """3+ strands with same entity + same relation cluster → consolidate."""
-        from memory import MemorySystem
 
         # Create 3 strands for "alice" with PRICE_CONCERN (cluster 0)
         strands = [
@@ -94,7 +90,6 @@ class TestMemoryConsolidation:
 
     def test_consolidation_skips_small_groups(self):
         """Groups with < 3 strands should not be consolidated."""
-        from memory import MemorySystem
 
         strands = [
             _make_strand("s1", ["alice"], relation=RelationType.WANTS.value, raw_hash="h1"),
@@ -113,7 +108,6 @@ class TestMemoryConsolidation:
 
     def test_forgetting_removes_unused(self):
         """Strands with 0 activations older than threshold get forgotten."""
-        from memory import MemorySystem
 
         strands = [
             _make_strand("s1", ["alice"], timestamp=1000, raw_hash="h1"),
@@ -138,7 +132,6 @@ class TestMemoryConsolidation:
 
     def test_supersede_logic(self):
         """Same entity + same relation + different sentiment → supersede."""
-        from memory import MemorySystem
 
         s1 = _make_strand("s1", ["alice"], relation=RelationType.PRICE_CONCERN.value,
                           sentiment=-2, raw_hash="h1")
@@ -161,7 +154,6 @@ class TestMemoryConsolidation:
 
     def test_supersede_skips_factual_relations(self):
         """Factual relations like SENT should NOT be superseded (R5 mitigation)."""
-        from memory import MemorySystem
 
         # SENT is a historical event, not a belief state
         s1 = _make_strand("s1", ["alice"], relation=RelationType.SENT.value,
@@ -185,7 +177,6 @@ class TestMemoryConsolidation:
 
     def test_supersede_works_for_belief_states(self):
         """Belief-state relations like HESITANT should be superseded (R5 mitigation)."""
-        from memory import MemorySystem
 
         s1 = _make_strand("s1", ["alice"], relation=RelationType.HESITANT.value,
                           sentiment=-1, raw_hash="h1")

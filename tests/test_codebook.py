@@ -1,7 +1,7 @@
 """Tests for the codebook module — the DNA alphabet."""
 
 import pytest
-from codebook import (
+from cognitive_memory import (
     Codebook,
     CodebookStrand,
     EntityType,

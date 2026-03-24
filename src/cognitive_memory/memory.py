@@ -31,11 +31,12 @@ import hashlib
 import time
 from collections import defaultdict
 
-from codebook import Codebook, CodebookStrand, Modifier, RelationType
-from entities import EntityRegistry
-from genome import DNAEncoder, Genome
-from graph import AssociationGraph
-from expression import ExpressionEngine
+from .codebook import Codebook, CodebookStrand, Modifier, RelationType
+from .config import Config
+from .entities import EntityRegistry
+from .genome import DNAEncoder, Genome
+from .graph import AssociationGraph
+from .expression import ExpressionEngine
 
 
 class MemorySystem:
@@ -78,26 +79,44 @@ class MemorySystem:
 
     def __init__(
         self,
-        genome_path: str = "genome.json",
-        graph_path: str = "graph.json",
-        entities_path: str = "entities.json",
-        model: str = "claude-sonnet-4-20250514",
+        config: Config | None = None,
+        *,
+        # Legacy kwargs for backwards compatibility
+        genome_path: str | None = None,
+        graph_path: str | None = None,
+        entities_path: str | None = None,
+        model: str | None = None,
     ):
+        cfg = config or Config()
+        # Allow legacy kwargs to override config
+        if genome_path is not None:
+            cfg.genome_path = genome_path
+        if graph_path is not None:
+            cfg.graph_path = graph_path
+        if entities_path is not None:
+            cfg.entities_path = entities_path
+        if model is not None:
+            cfg.model = model
+
+        self.config = cfg
         self.codebook = Codebook()
-        self.entity_registry = EntityRegistry(path=entities_path)
+        self.entity_registry = EntityRegistry(path=cfg.entities_path)
         self.encoder = DNAEncoder(
             codebook=self.codebook,
             entity_registry=self.entity_registry,
-            model=model,
+            model=cfg.model,
+            max_retries=cfg.max_extraction_retries,
+            max_entities=cfg.max_entities_per_strand,
         )
-        self.genome = Genome(path=genome_path)
-        self.graph = AssociationGraph(path=graph_path)
+        self.genome = Genome(path=cfg.genome_path)
+        self.graph = AssociationGraph(path=cfg.graph_path, config=cfg)
         self.expression = ExpressionEngine(
             genome=self.genome,
             graph=self.graph,
             codebook=self.codebook,
             entity_registry=self.entity_registry,
-            model=model,
+            model=cfg.model,
+            config=cfg,
         )
         self._recent_ids: list[str] = list(self.genome.all_ids())
         self.graph.ensure_ego_node("agent")
@@ -253,7 +272,7 @@ class MemorySystem:
         if consolidated > 0:
             self.genome.save()
 
-        return {"consolidated": consolidated, "groups_processed": len(groups)}
+        return {"consolidated": consolidated, "groups_found": len(groups), "groups_processed": len(groups), "merged": consolidated}
 
     def _get_relation_cluster(self, relation_code: int) -> int:
         """Find which semantic cluster a relation belongs to."""
@@ -264,7 +283,7 @@ class MemorySystem:
 
     # ── Intelligent Forgetting ───────────────────────────────────────────
 
-    def forget(self, min_age_seconds: int = 86400 * 30, min_activations: int = 0) -> dict:
+    def forget(self, min_age_seconds: int | None = None, min_activations: int | None = None) -> dict:
         """
         Brain-like forgetting. Prune strands that:
         - Have never been activated in any query
@@ -274,6 +293,11 @@ class MemorySystem:
 
         Returns stats about what was forgotten.
         """
+        if min_age_seconds is None:
+            min_age_seconds = self.config.forget_min_age_seconds
+        if min_activations is None:
+            min_activations = self.config.forget_min_activations
+
         now = int(time.time())
         ego_linked = set(self.graph.get_ego_linked_strands("agent"))
         forgotten = 0
@@ -324,6 +348,7 @@ class MemorySystem:
             "graph_nodes": self.graph.node_count(),
             "graph_edges": self.graph.edge_count(),
             "entity_instances": self.entity_registry.count(),
+            "entities": self.entity_registry.count(),
             "ego_nodes": self.graph.ego_node_count(),
             "ego_linked_strands": len(self.graph.get_ego_linked_strands("agent")),
             "codebook_size": self.codebook.total_codes(),

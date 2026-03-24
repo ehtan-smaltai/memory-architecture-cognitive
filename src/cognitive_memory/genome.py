@@ -19,33 +19,12 @@ import hashlib
 import logging
 import os
 import re
-import tempfile
 import time
 from typing import Optional
 
 import anthropic
 
-logger = logging.getLogger(__name__)
-
-
-def _atomic_write_json(path: str, data) -> None:
-    """Write JSON atomically: write to temp file, then os.replace."""
-    dir_name = os.path.dirname(path) or "."
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_path, path)
-    except BaseException:
-        # Clean up temp file on failure
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-from codebook import (
+from .codebook import (
     Codebook,
     CodebookStrand,
     make_codebook_strand,
@@ -55,7 +34,10 @@ from codebook import (
     TemporalMarker,
     Domain,
 )
-from entities import EntityRegistry
+from .entities import EntityRegistry
+from ._persistence import atomic_write_json
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Extraction prompt (constrained to codebook codes) ───────────────────────
@@ -111,12 +93,16 @@ class DNAEncoder:
         codebook: Codebook,
         entity_registry: EntityRegistry,
         model: str = "claude-sonnet-4-20250514",
+        max_retries: int = 2,
+        max_entities: int = 4,
     ):
         self.client = anthropic.Anthropic()
         self.model = model
         self.codebook = codebook
         self.entity_registry = entity_registry
         self._system_prompt = build_extraction_prompt(codebook)
+        self._max_retries = max_retries
+        self._max_entities = max_entities
 
     @staticmethod
     def _parse_llm_json(text: str) -> dict:
@@ -132,9 +118,9 @@ class DNAEncoder:
             text = match.group(0)
         return json.loads(text)
 
-    def _extract_with_retry(self, raw_text: str, max_retries: int = 2) -> Optional[dict]:
+    def _extract_with_retry(self, raw_text: str) -> Optional[dict]:
         """Call LLM to extract structured fields, with retry on parse failure."""
-        for attempt in range(max_retries + 1):
+        for attempt in range(self._max_retries + 1):
             try:
                 response = self.client.messages.create(
                     model=self.model,
@@ -154,11 +140,11 @@ class DNAEncoder:
                 return extracted
             except (json.JSONDecodeError, ValueError, KeyError) as e:
                 logger.warning(f"LLM extraction attempt {attempt + 1} failed: {e}")
-                if attempt == max_retries:
+                if attempt == self._max_retries:
                     return None
             except anthropic.APIError as e:
                 logger.error(f"API error during extraction: {e}")
-                if attempt == max_retries:
+                if attempt == self._max_retries:
                     return None
         return None
 
@@ -176,7 +162,7 @@ class DNAEncoder:
 
         raw_hash = hashlib.sha256(raw_text.encode()).hexdigest()
 
-        extracted = self._extract_with_retry(raw_text, max_retries=2)
+        extracted = self._extract_with_retry(raw_text)
 
         if extracted is None:
             # Fallback: return a minimal strand with UNKNOWN/OTHER codes
@@ -208,7 +194,7 @@ class DNAEncoder:
 
         # Map entities through codebook + registry
         entity_slots = []
-        for ent in extracted.get("entities", [])[:4]:  # max 4 entities
+        for ent in extracted.get("entities", [])[:self._max_entities]:
             etype_code = self.codebook.encode_entity_type(ent.get("type", "UNKNOWN"))
             instance_id = self.entity_registry.resolve(
                 raw_name=ent.get("name", "unknown"),
@@ -277,7 +263,7 @@ class Genome:
 
     def save(self):
         data = [s.to_dict() for s in self._strands.values()]
-        _atomic_write_json(self.path, data)
+        atomic_write_json(self.path, data)
 
     def add(self, strand: CodebookStrand) -> str:
         """Add a strand to the genome. Returns strand_id."""

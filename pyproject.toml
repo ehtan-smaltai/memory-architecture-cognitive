@@ -21,15 +21,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
-include = [
-    "codebook.py",
-    "entities.py",
-    "expression.py",
-    "genome.py",
-    "graph.py",
-    "memory.py",
-]
+packages = ["src/cognitive_memory"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

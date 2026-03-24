@@ -4,8 +4,10 @@ import json
 import os
 import tempfile
 import pytest
-from codebook import CodebookStrand, EntityType, RelationType, Modifier, TemporalMarker, Domain, make_codebook_strand
-from genome import Genome, DNAEncoder
+from cognitive_memory import (
+    CodebookStrand, EntityType, RelationType, Modifier, TemporalMarker, Domain,
+    make_codebook_strand, Genome, DNAEncoder,
+)
 
 
 def _make_strand(strand_id="s1", raw_hash="h1", timestamp=1000, relation=0):
