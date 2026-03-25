@@ -56,20 +56,22 @@ class TestMemoryConsolidation:
         return codebook
 
     def test_consolidation_merges_related_strands(self):
-        """3+ strands with same entity + same relation cluster → consolidate."""
+        """5+ strands with same entity + same relation → consolidate."""
 
-        # Create 3 strands for "alice" with PRICE_CONCERN (cluster 0)
+        # Create 5 strands for "alice" with PRICE_CONCERN (same relation)
         strands = [
             _make_strand(f"s{i}", ["alice"],
                          relation=RelationType.PRICE_CONCERN.value,
                          domain=Domain.SALES.value,
                          timestamp=1000 + i * 100,
                          raw_hash=f"h{i}")
-            for i in range(3)
+            for i in range(5)
         ]
         strands[0].trace = "Budget issues Q1"
         strands[1].trace = "Pricing too high"
         strands[2].trace = "Discount requested"
+        strands[3].trace = "Wants lower price"
+        strands[4].trace = "Asked about bulk discount"
 
         codebook = self._build_system_with_strands(strands)
 
@@ -81,7 +83,7 @@ class TestMemoryConsolidation:
         system.entity_registry = self.registry
 
         result = system.consolidate()
-        assert result["consolidated"] >= 2  # at least 2 old strands superseded
+        assert result["consolidated"] >= 4  # at least 4 old strands superseded
 
         # The most recent strand should be the keeper
         active = self.genome.active_strands()
@@ -89,11 +91,11 @@ class TestMemoryConsolidation:
         assert "Budget issues Q1" in active[0].trace or "Pricing too high" in active[0].trace
 
     def test_consolidation_skips_small_groups(self):
-        """Groups with < 3 strands should not be consolidated."""
+        """Groups with < 5 strands should not be consolidated."""
 
         strands = [
-            _make_strand("s1", ["alice"], relation=RelationType.WANTS.value, raw_hash="h1"),
-            _make_strand("s2", ["alice"], relation=RelationType.WANTS.value, raw_hash="h2"),
+            _make_strand(f"s{i}", ["alice"], relation=RelationType.WANTS.value, raw_hash=f"h{i}")
+            for i in range(4)
         ]
         codebook = self._build_system_with_strands(strands)
 

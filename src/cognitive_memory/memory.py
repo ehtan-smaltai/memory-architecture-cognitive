@@ -239,18 +239,19 @@ class MemorySystem:
         """
         groups: dict[tuple[str, int], list[CodebookStrand]] = defaultdict(list)
 
-        # Group active strands by (primary_entity, relation_cluster)
+        # Group active strands by (primary_entity, exact_relation)
+        # Using exact relation (not cluster) to avoid over-merging:
+        # e.g., EXPRESSED and MENTIONED are semantically similar but
+        # carry different facts that should not be consolidated together.
         for strand in self.genome.active_strands():
             if not strand.entity_slots:
                 continue
             primary = strand.entity_slots[0][1]
-            # Find which cluster this relation belongs to
-            cluster_id = self._get_relation_cluster(strand.relation)
-            groups[(primary, cluster_id)].append(strand)
+            groups[(primary, strand.relation)].append(strand)
 
         consolidated = 0
         for (entity, cluster), strands in groups.items():
-            if len(strands) < 3:
+            if len(strands) < 5:
                 continue  # not enough to consolidate
 
             # Sort by timestamp, keep the most recent
@@ -260,7 +261,7 @@ class MemorySystem:
             # Combine traces from all strands in the group
             all_traces = [s.trace for s in strands if s.trace]
             if all_traces:
-                combined_trace = " | ".join(all_traces[:3])  # keep top 3 traces
+                combined_trace = " | ".join(all_traces[:5])  # keep top 5 traces
                 keeper.trace = combined_trace
 
             # Boost keeper's confidence (consolidated = more certain)

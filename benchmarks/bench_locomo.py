@@ -410,6 +410,7 @@ def ingest_conversation(
     mem: MemorySystem,
     conv: Conversation,
     verbose: bool = False,
+    skip_consolidate: bool = False,
 ) -> dict:
     """
     Store all turns from a conversation into the memory system.
@@ -460,9 +461,12 @@ def ingest_conversation(
             if verbose:
                 print(f"    [ERROR] Turn {i}: {e}")
 
-    # Run consolidation after ingesting all turns
-    consolidate_stats = mem.consolidate()
-    stats["consolidated"] = consolidate_stats.get("consolidated", 0)
+    # Run consolidation after ingesting all turns (unless skipped)
+    if not skip_consolidate:
+        consolidate_stats = mem.consolidate()
+        stats["consolidated"] = consolidate_stats.get("consolidated", 0)
+    else:
+        stats["consolidated"] = 0
 
     return stats
 
@@ -553,6 +557,7 @@ def run_benchmark(
     model: str = MEMORY_MODEL,
     judge_model: str = JUDGE_MODEL,
     token_budget: int = 500,
+    skip_consolidate: bool = False,
 ) -> BenchmarkReport:
     """
     Run the full LoCoMo benchmark.
@@ -587,7 +592,7 @@ def run_benchmark(
         # Phase 1: Ingest
         print(f"\n  Phase 1: Ingesting {len(conv.turns)} turns...")
         ingest_start = time.perf_counter()
-        ingest_stats = ingest_conversation(mem, conv, verbose=verbose)
+        ingest_stats = ingest_conversation(mem, conv, verbose=verbose, skip_consolidate=skip_consolidate)
         ingest_time = time.perf_counter() - ingest_start
 
         report.total_store_time_s += ingest_time
@@ -853,6 +858,11 @@ def main():
         default=None,
         help="Max questions per conversation (for quick testing)",
     )
+    parser.add_argument(
+        "--no-consolidate",
+        action="store_true",
+        help="Skip consolidation after ingestion (test raw retrieval)",
+    )
 
     args = parser.parse_args()
 
@@ -925,6 +935,7 @@ def main():
         model=args.model,
         judge_model=args.judge_model,
         token_budget=args.token_budget,
+        skip_consolidate=args.no_consolidate,
     )
 
     # Report
