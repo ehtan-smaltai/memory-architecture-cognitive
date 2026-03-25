@@ -489,7 +489,12 @@ def evaluate_qa(
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     # Compute F1
-    f1 = compute_f1(predicted, qa_item.answer)
+    # For multi-hop (cat 3) answers with semicolons, the official LoCoMo eval
+    # only uses the part before the first semicolon.
+    gold_for_f1 = qa_item.answer
+    if qa_item.category == 3 and ";" in qa_item.answer:
+        gold_for_f1 = qa_item.answer.split(";")[0].strip()
+    f1 = compute_f1(predicted, gold_for_f1)
 
     # LLM-as-Judge
     judge_score = 0.0
