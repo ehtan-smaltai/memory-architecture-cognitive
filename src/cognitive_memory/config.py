@@ -46,8 +46,8 @@ class Config:
     # ── Expression (retrieval) ────────────────────────────────────────────
     base_threshold: float = 0.15
     spread_decay: float = 0.7
-    token_budget: int = 500
-    seed_count: int = 3
+    token_budget: int = 2000
+    seed_count: int = 8
     max_spread_depth: int = 4
 
     # ── Forgetting defaults ───────────────────────────────────────────────
