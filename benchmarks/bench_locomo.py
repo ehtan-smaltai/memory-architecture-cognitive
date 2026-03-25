@@ -210,10 +210,10 @@ def load_locomo(path: str = LOCOMO_DATA_FILE) -> list[Conversation]:
                 # For adversarial Qs, the gold answer is essentially
                 # "unanswerable" or "not mentioned". We use a sentinel
                 # so the judge can evaluate whether the system was fooled.
-                gold_answer = qa_data.get("answer", "This information is not mentioned in the conversation.")
-                adversarial = qa_data.get("adversarial_answer", "")
+                gold_answer = str(qa_data.get("answer", "This information is not mentioned in the conversation."))
+                adversarial = str(qa_data.get("adversarial_answer", ""))
             else:
-                gold_answer = qa_data["answer"]
+                gold_answer = str(qa_data["answer"])
                 adversarial = ""
 
             qa_items.append(
@@ -259,6 +259,7 @@ except ImportError:
 
 def normalize_answer(s: str) -> str:
     """Normalize answer text for F1 computation. Matches LoCoMo's implementation."""
+    s = str(s)
     s = s.replace(",", "")
 
     def remove_articles(text: str) -> str:
@@ -520,9 +521,9 @@ def evaluate_qa(
         status = "PASS" if judge_score > 0.5 else "FAIL"
         print(f"    [{cat_name:>11}] F1={f1:.3f} J={judge_score:.0f} {status}")
         if verbose and f1 < 0.3:
-            print(f"      Q: {qa_item.question[:80]}...")
-            print(f"      Gold: {qa_item.answer[:80]}...")
-            print(f"      Pred: {predicted[:80]}...")
+            print(f"      Q: {str(qa_item.question)[:80]}...")
+            print(f"      Gold: {str(qa_item.answer)[:80]}...")
+            print(f"      Pred: {str(predicted)[:80]}...")
 
     return EvalResult(
         question=qa_item.question,
