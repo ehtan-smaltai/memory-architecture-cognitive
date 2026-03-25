@@ -25,6 +25,9 @@ entities.json
 .env
 *.env
 
+# Benchmark data (downloaded, not committed)
+benchmarks/data/
+
 # OS
 .DS_Store
 Thumbs.db
