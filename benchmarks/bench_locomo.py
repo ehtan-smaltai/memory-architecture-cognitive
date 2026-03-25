@@ -378,7 +378,10 @@ Predicted answer: {predicted_answer}"""
             messages=[{"role": "user", "content": user_msg}],
         )
         verdict = response.content[0].text.strip().upper()
-        return 1.0 if "CORRECT" in verdict else 0.0
+        # Check for exact CORRECT (not substring of INCORRECT)
+        if verdict.startswith("INCORRECT"):
+            return 0.0
+        return 1.0 if verdict.startswith("CORRECT") else 0.0
     except anthropic.APIError as e:
         print(f"    [WARN] Judge API error: {e}")
         return 0.0
