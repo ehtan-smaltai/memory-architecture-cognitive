@@ -849,8 +849,8 @@ def main():
     parser.add_argument(
         "--token-budget",
         type=int,
-        default=500,
-        help="Token budget per query (default: 500)",
+        default=2000,
+        help="Token budget per query (default: 2000)",
     )
     parser.add_argument(
         "--max-questions",
