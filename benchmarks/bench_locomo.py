@@ -73,10 +73,10 @@ CATEGORY_NAMES = {
 }
 
 # Judge model for LLM-as-Judge scoring
-JUDGE_MODEL = "claude-sonnet-4-20250514"
+JUDGE_MODEL = "claude-haiku-4-5-20251001"
 
 # Encoding model for memory system
-MEMORY_MODEL = "claude-sonnet-4-20250514"
+MEMORY_MODEL = "claude-haiku-4-5-20251001"
 
 
 # ─── Data structures ─────────────────────────────────────────────────────────
@@ -385,9 +385,9 @@ Predicted answer: {predicted_answer}"""
 
 # ─── Cost estimation ─────────────────────────────────────────────────────────
 
-# Approximate token costs for Claude Sonnet (per 1M tokens)
-COST_PER_1M_INPUT = 3.00  # $3/MTok input
-COST_PER_1M_OUTPUT = 15.00  # $15/MTok output
+# Approximate token costs for Claude Haiku (per 1M tokens)
+COST_PER_1M_INPUT = 0.80  # $0.80/MTok input
+COST_PER_1M_OUTPUT = 4.00  # $4/MTok output
 
 
 def estimate_cost(
@@ -472,6 +472,7 @@ def evaluate_qa(
     judge_client: anthropic.Anthropic,
     skip_judge: bool = False,
     verbose: bool = False,
+    judge_model: str = JUDGE_MODEL,
 ) -> EvalResult:
     """
     Evaluate a single QA item against the memory system.
@@ -505,6 +506,7 @@ def evaluate_qa(
             qa_item.question,
             qa_item.answer,
             predicted,
+            model=judge_model,
             is_adversarial=is_adversarial,
             adversarial_answer=qa_item.adversarial_answer,
         )
@@ -545,6 +547,7 @@ def run_benchmark(
     verbose: bool = False,
     track_cost: bool = False,
     model: str = MEMORY_MODEL,
+    judge_model: str = JUDGE_MODEL,
     token_budget: int = 500,
 ) -> BenchmarkReport:
     """
@@ -605,6 +608,7 @@ def run_benchmark(
             result = evaluate_qa(
                 mem, qa_item, judge_client,
                 skip_judge=skip_judge, verbose=verbose,
+                judge_model=judge_model,
             )
             report.results.append(result)
             report.total_tokens_used += result.tokens_used
@@ -828,6 +832,12 @@ def main():
         help=f"Model for memory system (default: {MEMORY_MODEL})",
     )
     parser.add_argument(
+        "--judge-model",
+        type=str,
+        default=JUDGE_MODEL,
+        help=f"Model for LLM-as-Judge scoring (default: {JUDGE_MODEL})",
+    )
+    parser.add_argument(
         "--token-budget",
         type=int,
         default=500,
@@ -898,6 +908,7 @@ def main():
     # Run benchmark
     print(f"\n  Starting LoCoMo benchmark...")
     print(f"  Model: {args.model}")
+    print(f"  Judge model: {args.judge_model}")
     print(f"  Token budget: {args.token_budget}")
     print(f"  Judge: {'ENABLED' if not args.skip_judge else 'DISABLED'}")
 
@@ -908,6 +919,7 @@ def main():
         verbose=args.verbose,
         track_cost=args.track_cost,
         model=args.model,
+        judge_model=args.judge_model,
         token_budget=args.token_budget,
     )
 
