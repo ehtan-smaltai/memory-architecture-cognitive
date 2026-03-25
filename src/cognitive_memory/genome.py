@@ -78,7 +78,7 @@ Rules:
 - domain: MUST be one of the DOMAINS codes above.
 - sentiment: integer from -2 (very negative) to 2 (very positive). 0 = neutral.
 - confidence: integer from 1 (very uncertain) to 5 (very certain).
-- trace: a 10-15 word compressed micro-summary that preserves specific facts (numbers, durations, dates, names) that the codebook codes cannot capture. This is the neocortical memory trace.
+- trace: a 10-15 word compressed micro-summary that preserves specific facts (numbers, durations, dates, names) that the codebook codes cannot capture. This is the neocortical memory trace. IMPORTANT: Convert ALL relative time references (yesterday, last week, last year, next month, etc.) to absolute dates using the context timestamp. For example, if the text is dated "8 May 2023" and mentions "yesterday", write "7 May 2023" in the trace, not "yesterday".
 
 Return ONLY the JSON object, no markdown fences, no explanation."""
 
