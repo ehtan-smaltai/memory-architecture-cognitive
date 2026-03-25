@@ -141,6 +141,7 @@ class MemorySystem:
         # Enable batch mode to avoid redundant disk writes during store
         self.genome.begin_batch()
         self.entity_registry.begin_batch()
+        self.graph.begin_batch()
 
         try:
             # RNA transcription -> DNA compression (1 API call)
@@ -174,6 +175,7 @@ class MemorySystem:
             # Single save at end of store operation
             self.genome.end_batch()
             self.entity_registry.end_batch()
+            self.graph.end_batch()
 
     def _check_supersede(self, new_strand: CodebookStrand):
         """

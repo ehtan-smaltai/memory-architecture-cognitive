@@ -27,6 +27,7 @@ packages = ["src/cognitive_memory"]
 testpaths = ["tests"]
 markers = [
     "integration: tests that require ANTHROPIC_API_KEY (deselect with '-m \"not integration\"')",
+    "benchmark: performance benchmark tests (deselect with '-m \"not benchmark\"')",
 ]
 
 [tool.ruff]

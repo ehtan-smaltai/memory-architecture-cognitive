@@ -57,6 +57,7 @@ class AssociationGraph:
         self._recency_buffer: dict[str, float] = {}  # strand_id → warmth
         # Index: (domain, relation) → set of strand_ids for O(1) semantic lookups
         self._domain_relation_index: dict[tuple[int, int], set[str]] = {}
+        self._batch_mode: bool = False
         self._load()
 
     # ── Persistence ──────────────────────────────────────────────────────
@@ -80,6 +81,15 @@ class AssociationGraph:
         for entry in extra.get("recency_buffer", []):
             self._recency_buffer[entry["id"]] = entry["warmth"]
 
+    def begin_batch(self):
+        """Suppress auto-save until end_batch() is called."""
+        self._batch_mode = True
+
+    def end_batch(self):
+        """End batch mode and persist."""
+        self._batch_mode = False
+        self.save()
+
     def rebuild_domain_relation_index(self, genome_getter):
         """Rebuild the domain+relation index from the genome (call after load)."""
         self._domain_relation_index.clear()
@@ -94,7 +104,9 @@ class AssociationGraph:
                 self._domain_relation_index[key] = set()
             self._domain_relation_index[key].add(nid)
 
-    def save(self):
+    def save(self, force: bool = False):
+        if self._batch_mode and not force:
+            return
         nodes = []
         for n in self.graph.nodes:
             node_type = self.graph.nodes[n].get("node_type", "strand")
