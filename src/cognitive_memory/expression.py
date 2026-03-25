@@ -216,6 +216,17 @@ class ExpressionEngine:
         if not candidates:
             candidates = set(self.genome.active_ids())
 
+        # Extract query keywords for trace-based boosting
+        query_text = (query_strand.trace or "").lower()
+        query_keywords = set(query_text.split()) - {
+            "the", "a", "an", "is", "was", "are", "were", "be", "been",
+            "has", "had", "have", "do", "does", "did", "will", "would",
+            "could", "should", "may", "might", "can", "shall", "of", "in",
+            "to", "for", "on", "at", "by", "with", "from", "about", "as",
+            "and", "or", "but", "not", "no", "if", "it", "its", "this",
+            "that", "what", "when", "where", "who", "how", "which", "their",
+        }
+
         scores = []
         for sid in candidates:
             target = self.genome.get(sid)
@@ -223,6 +234,14 @@ class ExpressionEngine:
                 continue
             sim = codebook_similarity(query_strand, target, self.codebook)
             if sim > 0:
+                # Boost score based on keyword overlap with trace
+                if query_keywords and target.trace:
+                    trace_lower = target.trace.lower()
+                    hits = sum(1 for kw in query_keywords if kw in trace_lower)
+                    if hits > 0:
+                        # Keyword boost: up to 0.3 extra score
+                        boost = min(0.3, hits * 0.1)
+                        sim += boost
                 scores.append((sid, sim))
         scores.sort(key=lambda x: x[1], reverse=True)
         return scores[: self.SEED_COUNT]
