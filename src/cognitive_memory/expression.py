@@ -79,7 +79,7 @@ FORMAT: Each memory has two parts:
 
 Memories are grouped by entity and sorted by activation score (higher = more relevant).
 Use BOTH the DNA codes (structure/relationships) AND the traces (specific facts) to reason.
-Be specific — reference entities, numbers, and facts from the traces. Respond in natural language."""
+Answer in 1-2 sentences maximum. Be direct and specific — state facts, dates, and names from the traces. Do not hedge or explain your reasoning. If the answer is a single word, date, or name, just state it."""
 
 
 # ─── Enhanced similarity ─────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ class ExpressionEngine:
             "causal": 1.0, "ego": 1.0,
         }
         # Temporal queries boost temporal edges
-        if query_strand.temporal in (TemporalMarker.PAST.value, TemporalMarker.DEADLINE.value):
+        if query_strand.temporal in (TemporalMarker.PAST.value, TemporalMarker.FUTURE.value, TemporalMarker.DEADLINE.value):
             weights["temporal"] = 1.5
         # Entity-heavy queries boost entity edges
         if len(query_strand.entity_slots) >= 2:
@@ -453,7 +453,7 @@ Question: {query_text}"""
 
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=400,
+            max_tokens=150,
             system=self._reasoning_prompt,
             messages=[{"role": "user", "content": user_message}],
         )
