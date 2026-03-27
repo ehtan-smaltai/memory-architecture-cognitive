@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 
-import anthropic
+from cognitive_memory.llm_client import get_client
 
 from .codebook import (
     Codebook,
@@ -149,7 +149,7 @@ class ExpressionEngine:
         self.graph = graph
         self.codebook = codebook
         self.entity_registry = entity_registry
-        self.client = anthropic.Anthropic()
+        self.client = get_client()
         self.model = model
         self._reasoning_prompt = build_reasoning_prompt(codebook)
 

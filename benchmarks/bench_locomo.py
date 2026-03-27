@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
+from cognitive_memory.llm_client import get_client
 
 # Ensure the package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -569,7 +570,7 @@ def run_benchmark(
     4. Compute metrics
     """
     report = BenchmarkReport()
-    judge_client = anthropic.Anthropic()
+    judge_client = get_client()
 
     for conv_idx, conv in enumerate(conversations):
         print(f"\n{'='*70}")

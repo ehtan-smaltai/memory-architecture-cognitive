@@ -22,7 +22,7 @@ import re
 import time
 from typing import Optional
 
-import anthropic
+from cognitive_memory.llm_client import get_client
 
 from .codebook import (
     Codebook,
@@ -96,7 +96,7 @@ class DNAEncoder:
         max_retries: int = 2,
         max_entities: int = 4,
     ):
-        self.client = anthropic.Anthropic()
+        self.client = get_client()
         self.model = model
         self.codebook = codebook
         self.entity_registry = entity_registry
