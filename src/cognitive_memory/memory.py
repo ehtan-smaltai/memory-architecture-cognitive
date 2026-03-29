@@ -251,7 +251,7 @@ class MemorySystem:
 
         consolidated = 0
         for (entity, cluster), strands in groups.items():
-            if len(strands) < 2:
+            if len(strands) < 5:
                 continue  # not enough to consolidate
 
             # Sort by timestamp, keep the most recent
