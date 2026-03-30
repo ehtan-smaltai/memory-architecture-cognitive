@@ -498,13 +498,27 @@ Question: {query_text}"""
         # Query analysis
         query_complexity = self._estimate_query_complexity(query_strand)
 
-        # Step 1: Seeds (semantic matching)
+        # Step 1: Seeds (hybrid: BM25 + codebook similarity via RRF)
         seeds = self._find_seeds(query_strand)
 
         # Step 2: Spreading activation (adaptive + confidence + edge-weighted)
         threshold = self._adaptive_threshold(seeds, query_complexity)
         edge_weights = self._query_edge_weights(query_strand)
         activation = self._spread_activation(seeds, threshold, edge_weights)
+
+        # Step 2b: Inject BM25 direct hits into activation map
+        # This ensures keyword-matched strands survive even if spreading
+        # activation doesn't reach them through the graph.
+        self._ensure_bm25()
+        query_text_for_bm25 = query_strand.raw_text or query_strand.trace or query_text
+        bm25_hits = self.bm25.search(query_text_for_bm25, top_k=self.SEED_COUNT)
+        if bm25_hits:
+            max_bm25 = bm25_hits[0][1] if bm25_hits[0][1] > 0 else 1.0
+            for sid, bm25_score in bm25_hits:
+                # Normalize BM25 score to 0-1 range and ensure it's competitive
+                normalized = min(1.0, bm25_score / max_bm25)
+                # Take the max of BM25 and activation score (don't weaken existing)
+                activation[sid] = max(activation.get(sid, 0), normalized * 0.8)
 
         # Step 3: Budget + assemble context (entity-grouped narrative)
         selected, tokens_used = self._assemble_context(activation)
