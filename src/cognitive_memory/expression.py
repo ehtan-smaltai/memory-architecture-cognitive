@@ -41,6 +41,7 @@ from .config import Config
 from .genome import Genome
 from .graph import AssociationGraph
 from .entities import EntityRegistry
+from .retrieval import BM25Index, reciprocal_rank_fusion
 
 
 # ─── Brain reasoning prompt ──────────────────────────────────────────────────
@@ -160,10 +161,14 @@ class ExpressionEngine:
         self.SEED_COUNT = cfg.seed_count
         self.MAX_DEPTH = cfg.max_spread_depth
 
+        # Hybrid retrieval: BM25 keyword search index
+        self.bm25 = BM25Index()
+        self._bm25_built = False
+
     # ── Render DNA + trace ───────────────────────────────────────────────
 
     def render_strand(self, strand: CodebookStrand) -> str:
-        """Render a strand as DNA codes + neocortical trace."""
+        """Render a strand as DNA codes + raw text (preferred) or trace."""
         parts = []
         for etype, inst_id in strand.entity_slots:
             type_name = self.codebook.decode_entity_type(etype)
@@ -176,34 +181,48 @@ class ExpressionEngine:
         parts.append(f"SNT:{strand.sentiment:+d}")
 
         dna = " | ".join(parts)
-        if strand.trace:
-            return f"DNA: {dna}\n       Trace: {strand.trace}"
+        # Prefer raw text over trace — it preserves full conversational context
+        context = strand.raw_text or strand.trace
+        if context:
+            return f"DNA: {dna}\n       Context: {context}"
         return f"DNA: {dna}"
 
     # ── Step 1: SEED (with code similarity matrix) ───────────────────────
 
+    def _ensure_bm25(self):
+        """Lazily build BM25 index on first query."""
+        if not self._bm25_built:
+            self.bm25.build(self.genome.all_strands())
+            self._bm25_built = True
+
     def _find_seeds(self, query_strand: CodebookStrand) -> list[tuple[str, float]]:
         """
-        Find seeds using semantic code similarity.
+        Hybrid seed finding — dual trigger approach (inspired by SYNAPSE):
+          1. BM25 lexical trigger over raw text (catches exact keyword matches)
+          2. Codebook similarity trigger (catches structural matches)
+          3. Merge via Reciprocal Rank Fusion
 
-        Uses inverted indexes (entity → strands, domain+relation → strands) to
-        narrow candidates before computing similarity. Falls back to full scan
-        only if indexes yield no candidates.
+        This fixes the fundamental retrieval miss problem: BM25 finds "Sweden",
+        "single", "sunrise" etc. directly from raw text, regardless of how the
+        codebook encoded them.
         """
+        # ── Trigger 1: BM25 keyword search ──────────────────────────────────
+        self._ensure_bm25()
+        query_text = query_strand.raw_text or query_strand.trace or ""
+        bm25_results = self.bm25.search(query_text, top_k=self.SEED_COUNT * 3)
+
+        # ── Trigger 2: Codebook similarity (original approach) ──────────────
         # Build candidate set from indexes
         candidates: set[str] = set()
 
-        # Candidates sharing any entity with the query
         for inst_id in query_strand.get_entity_instance_ids():
             for sid in self.entity_registry.get_strands_for_entity(inst_id):
                 candidates.add(sid)
 
-        # Candidates sharing domain+relation (via graph index)
         dr_key = (query_strand.domain, query_strand.relation)
         for sid in self.graph._domain_relation_index.get(dr_key, set()):
             candidates.add(sid)
 
-        # Also check relation cluster neighbors for broader semantic match
         for cluster_id, codes in self.codebook._RELATION_CLUSTERS.items():
             if query_strand.relation in codes:
                 for code in codes:
@@ -212,39 +231,29 @@ class ExpressionEngine:
                         candidates.add(sid)
                 break
 
-        # Fallback: if indexes yield nothing, scan all active strands
         if not candidates:
             candidates = set(self.genome.active_ids())
 
-        # Extract query keywords for trace-based boosting
-        query_text = (query_strand.trace or "").lower()
-        query_keywords = set(query_text.split()) - {
-            "the", "a", "an", "is", "was", "are", "were", "be", "been",
-            "has", "had", "have", "do", "does", "did", "will", "would",
-            "could", "should", "may", "might", "can", "shall", "of", "in",
-            "to", "for", "on", "at", "by", "with", "from", "about", "as",
-            "and", "or", "but", "not", "no", "if", "it", "its", "this",
-            "that", "what", "when", "where", "who", "how", "which", "their",
-        }
-
-        scores = []
+        code_scores = []
         for sid in candidates:
             target = self.genome.get(sid)
             if target is None or target.superseded_by is not None:
                 continue
             sim = codebook_similarity(query_strand, target, self.codebook)
             if sim > 0:
-                # Boost score based on keyword overlap with trace
-                if query_keywords and target.trace:
-                    trace_lower = target.trace.lower()
-                    hits = sum(1 for kw in query_keywords if kw in trace_lower)
-                    if hits > 0:
-                        # Keyword boost: up to 0.3 extra score
-                        boost = min(0.3, hits * 0.1)
-                        sim += boost
-                scores.append((sid, sim))
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[: self.SEED_COUNT]
+                code_scores.append((sid, sim))
+        code_scores.sort(key=lambda x: x[1], reverse=True)
+        code_results = code_scores[: self.SEED_COUNT * 3]
+
+        # ── Merge via RRF ───────────────────────────────────────────────────
+        if bm25_results and code_results:
+            fused = reciprocal_rank_fusion(bm25_results, code_results, k=60)
+        elif bm25_results:
+            fused = bm25_results
+        else:
+            fused = code_results
+
+        return fused[: self.SEED_COUNT]
 
     # ── Step 2: ACTIVATE (adaptive threshold + confidence weighting) ─────
 

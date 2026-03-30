@@ -9,7 +9,7 @@ class TestConfig:
     def test_defaults(self):
         cfg = Config()
         assert cfg.model == "claude-sonnet-4-20250514"
-        assert cfg.token_budget == 500
+        assert cfg.token_budget == 2000
         assert cfg.decay_factor == 0.99
 
     def test_explicit_override(self):

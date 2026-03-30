@@ -150,6 +150,7 @@ class CodebookStrand:
     timestamp: int
     raw_hash: str
     trace: str = ""                       # neocortical trace — 10-15 word micro-summary
+    raw_text: str = ""                    # original raw text for BM25/keyword retrieval
     activation_count: int = 0             # how many times this strand has been activated
     superseded_by: str | None = None      # strand_id that supersedes this one
 
@@ -196,6 +197,7 @@ class CodebookStrand:
             "timestamp": self.timestamp,
             "raw_hash": self.raw_hash,
             "trace": self.trace,
+            "raw_text": self.raw_text,
             "activation_count": self.activation_count,
             "superseded_by": self.superseded_by,
         }
@@ -215,6 +217,7 @@ class CodebookStrand:
             timestamp=d["timestamp"],
             raw_hash=d["raw_hash"],
             trace=d.get("trace", ""),
+            raw_text=d.get("raw_text", ""),
             activation_count=d.get("activation_count", 0),
             superseded_by=d.get("superseded_by"),
         )

@@ -228,6 +228,7 @@ class DNAEncoder:
             timestamp=timestamp,
             raw_hash=raw_hash,
             trace=trace,
+            raw_text=raw_text,
         )
 
         return strand
