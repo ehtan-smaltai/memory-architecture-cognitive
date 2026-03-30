@@ -142,7 +142,7 @@ class DNAEncoder:
                 logger.warning(f"LLM extraction attempt {attempt + 1} failed: {e}")
                 if attempt == self._max_retries:
                     return None
-            except anthropic.APIError as e:
+            except Exception as e:
                 logger.error(f"API error during extraction: {e}")
                 if attempt == self._max_retries:
                     return None

@@ -341,7 +341,7 @@ Respond with ONLY one word: CORRECT or INCORRECT"""
 
 
 def judge_answer(
-    client: anthropic.Anthropic,
+    client,
     question: str,
     gold_answer: str,
     predicted_answer: str,
@@ -383,7 +383,7 @@ Predicted answer: {predicted_answer}"""
         if verdict.startswith("INCORRECT"):
             return 0.0
         return 1.0 if verdict.startswith("CORRECT") else 0.0
-    except anthropic.APIError as e:
+    except Exception as e:
         print(f"    [WARN] Judge API error: {e}")
         return 0.0
 
@@ -478,7 +478,7 @@ def ingest_conversation(
 def evaluate_qa(
     mem: MemorySystem,
     qa_item: QAItem,
-    judge_client: anthropic.Anthropic,
+    judge_client,
     skip_judge: bool = False,
     verbose: bool = False,
     judge_model: str = JUDGE_MODEL,
